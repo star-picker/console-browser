@@ -53,7 +53,10 @@ fn schema_created_and_crud_roundtrip() {
     // reopening the same file keeps data and migrations are idempotent
     drop(store);
     let store = Store::open(&path).expect("reopen");
-    assert_eq!(store.schema_version().expect("version"), 1);
+    assert_eq!(
+        store.schema_version().expect("version"),
+        cb_store::SCHEMA_VERSION
+    );
     assert!(store
         .get_page_by_url("https://example.com/a")
         .expect("get3")

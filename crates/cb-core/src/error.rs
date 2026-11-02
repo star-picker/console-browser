@@ -90,6 +90,17 @@ impl CbError {
         CbError::new("budget_exhausted", message, false)
     }
 
+    /// 本地配置缺失/未就绪：带「需要你做什么」的提示。
+    pub fn new_local(code: &str, message: impl Into<String>, hint: &str) -> CbError {
+        let mut err = CbError::new(code, message, false);
+        err.body.needs_user = Some(NeedsUser {
+            kind: "config".to_string(),
+            url: None,
+            hint: hint.to_string(),
+        });
+        err
+    }
+
     pub fn too_large(message: impl Into<String>) -> CbError {
         CbError::new("response_too_large", message, false)
     }

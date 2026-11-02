@@ -4,6 +4,7 @@
 //! 不套 Box：多一次分配换更厚的错误信息，这里划算。
 #![allow(clippy::result_large_err)]
 
+pub mod ai;
 pub mod envelope;
 pub mod error;
 pub mod export;
@@ -16,6 +17,7 @@ pub mod tools;
 use cb_net::Profile;
 use cb_store::Store;
 
+pub use ai::{complete, AiConfig, Completion, Provider};
 pub use envelope::{Envelope, Meta, ENGINE};
 pub use error::CbError;
 pub use fetch::{fetch_page, FetchOpts, FetchOutcome, Format};

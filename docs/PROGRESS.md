@@ -64,6 +64,17 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M2 切片 3 · AI provider + 出账 + 预算闸
+
+- `cb-core/src/ai.rs`：`Provider`（deepseek / openai-compatible / ollama）、OpenAI 兼容 chat completions 调用、响应解析、**每次调用必出账**、按天预算闸。
+- 新表（schema v2）：`llm_calls`（逐次明细）、`ai_budget`（按天累计）、`challenge_events`（挑战结果）。迁移靠 `PRAGMA user_version` 升到 2，老库自动补齐。
+- 命令：`cb ai config`（看解析结果，只报密钥有无、绝不打印本体）、`cb ai usage [--days N]`（按天汇总）、`cb ai ask "<prompt>" [--max-tokens]`。
+- 密钥来源：只用环境变量（`DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `CB_AI_KEY`），**不进库、不进仓库、不进日志**；有专门测试断言密钥不会出现在输出里。
+- 超预算 → `budget_exhausted` + 退出码 9（调用前就拦，不烧钱）。
+- Ruling: 模型调用走 `cb-net` 而不是另起 HTTP 栈 —— 复用同一套 TLS 指纹与录制回放 —— 代价：模型 API 也吃指纹 profile 的配置。
+- Ruling: 预算默认「不限但必记账」（`CB_AI_DAILY_BUDGET` 才设上限）—— 不替用户拍金额 —— 代价：默认没有硬刹车，靠 `cb ai usage` 自查。
+- 证据：cb-core 24 单测（含出账与预算闸两条 wire 测试）+ CLI 3 条（配置不泄密、无密钥报错、空台账）；`cargo test --workspace` 全绿；clippy 无告警。
+
 ### M2 切片 2 · 搜索引擎适配 + search_web
 
 - 新模块 cb-core/src/search.rs：`Engine`（ddg / bing / gh / arxiv）+ 每引擎 URL 构造 + SERP 解析 + 历史记账。

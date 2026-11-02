@@ -35,7 +35,7 @@
 ## M2 搜索与 AI
 
 - [x] 搜索引擎适配（ddg / bing / gh / arxiv）+ `cb search` + MCP `search_web`（9 测试）
-- [ ] cb-ai：provider（deepseek / openai-compatible / ollama）+ ledger + 预算闸
+- [x] cb-ai：provider（deepseek / openai-compatible / ollama）+ ledger + 预算闸（`cb ai config/usage/ask`）
 - [ ] challenge 探测与策略阶梯（含 LLM 升级、sampling 回调）
 - [ ] agent 最小循环（快照 → 动作 → delta）
 - [x] `cb export --to html|md`（单文件 HTML：剥脚本/外链样式/内联事件，注入阅读样式；7 个测试）

@@ -43,6 +43,7 @@ pub struct Request {
     pub method: String,
     pub url: String,
     pub headers: Vec<(String, String)>,
+    pub body: Option<String>,
 }
 
 impl Request {
@@ -51,6 +52,16 @@ impl Request {
             method: "GET".to_string(),
             url: url.into(),
             headers: Vec::new(),
+            body: None,
+        }
+    }
+
+    pub fn post(url: impl Into<String>, body: impl Into<String>) -> Request {
+        Request {
+            method: "POST".to_string(),
+            url: url.into(),
+            headers: vec![("content-type".to_string(), "application/json".to_string())],
+            body: Some(body.into()),
         }
     }
 
@@ -251,8 +262,12 @@ impl NetClient {
                 let mut builder = match req.method.to_ascii_uppercase().as_str() {
                     "GET" => client.get(&req.url),
                     "HEAD" => client.head(&req.url),
+                    "POST" => client.post(&req.url),
                     other => return Err(NetError::Network(format!("unsupported method {other}"))),
                 };
+                if let Some(body) = &req.body {
+                    builder = builder.body(body.clone());
+                }
                 for (k, v) in &req.headers {
                     builder = builder.header(k.as_str(), v.as_str());
                 }

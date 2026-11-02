@@ -94,6 +94,9 @@ enum Cmd {
     )]
     Search(commands::search::SearchArgs),
 
+    /// AI 配置 / 用量 / 提问 · AI config, usage ledger, one-shot ask
+    Ai(commands::ai::AiArgs),
+
     /// 本地库维护 · Local database maintenance
     Db(commands::db::DbArgs),
 
@@ -497,6 +500,119 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             }
             Ok(0)
         }
+        Cmd::Ai(args) => match &args.cmd {
+            commands::ai::AiCmd::Config => {
+                let config = cb_core::AiConfig::from_env();
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        config.describe(),
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    let described = config.describe();
+                    println!(
+                        "provider : {}",
+                        described["provider"].as_str().unwrap_or("")
+                    );
+                    println!("model    : {}", described["model"].as_str().unwrap_or(""));
+                    println!(
+                        "base_url : {}",
+                        described["base_url"].as_str().unwrap_or("")
+                    );
+                    println!(
+                        "api_key  : {}",
+                        if config.api_key.is_some() {
+                            "present"
+                        } else {
+                            "missing"
+                        }
+                    );
+                    println!(
+                        "budget   : {}",
+                        config
+                            .daily_budget
+                            .map(|b| b.to_string())
+                            .unwrap_or_else(|| "unlimited".to_string())
+                    );
+                    let used = ctx
+                        .store
+                        .ai_tokens_used(cb_core::ai::today())
+                        .map_err(cb_core::error::store_err)?;
+                    println!("today    : {used} tokens");
+                }
+                Ok(0)
+            }
+            commands::ai::AiCmd::Usage { days } => {
+                let rows = ctx
+                    .store
+                    .llm_usage(*days)
+                    .map_err(cb_core::error::store_err)?;
+                let today_used = ctx
+                    .store
+                    .ai_tokens_used(cb_core::ai::today())
+                    .map_err(cb_core::error::store_err)?;
+                if cli.json {
+                    let entries: Vec<serde_json::Value> = rows
+                        .iter()
+                        .map(|(day, prompt, completion)| {
+                            serde_json::json!({
+                                "day": day,
+                                "prompt_tokens": prompt,
+                                "completion_tokens": completion,
+                                "total": prompt + completion,
+                            })
+                        })
+                        .collect();
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "today_tokens": today_used, "days": entries }),
+                    );
+                    output::print_json(&envelope);
+                } else if rows.is_empty() {
+                    println!("no model calls recorded yet");
+                } else {
+                    for (day, prompt, completion) in rows {
+                        println!("{day}	prompt {prompt}	completion {completion}");
+                    }
+                    println!("today: {today_used} tokens");
+                }
+                Ok(0)
+            }
+            commands::ai::AiCmd::Ask { prompt, max_tokens } => {
+                let completion = cb_core::ai::complete(ctx, "ask", prompt, *max_tokens).await?;
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::to_value(&completion)
+                            .map_err(|e| CbError::other(e.to_string()))?,
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    println!("{}", completion.text);
+                    eprintln!(
+                        "-- {} tokens in / {} out · {} ms · {}",
+                        completion.prompt_tokens,
+                        completion.completion_tokens,
+                        completion.latency_ms,
+                        completion.model
+                    );
+                }
+                Ok(0)
+            }
+        },
         Cmd::Db(args) => {
             match &args.cmd {
                 commands::db::DbCmd::Prune => {

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
 
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 
 /// 缓存保留 7 天，历史 90 天，日志 14 天。
 pub const CACHE_RETENTION_SECS: i64 = 7 * 86_400;
@@ -69,6 +69,34 @@ CREATE TABLE IF NOT EXISTS settings(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS llm_calls(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  day INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  prompt_tokens INTEGER NOT NULL,
+  completion_tokens INTEGER NOT NULL,
+  latency_ms INTEGER NOT NULL,
+  ok INTEGER NOT NULL,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_calls_day ON llm_calls(day);
+CREATE TABLE IF NOT EXISTS ai_budget(
+  day INTEGER PRIMARY KEY,
+  tokens_used INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS challenge_events(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  strategy TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_challenge_domain ON challenge_events(domain);
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +160,30 @@ pub struct PruneReport {
     pub cache_deleted: i64,
     pub history_deleted: i64,
     pub logs_deleted: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmCall {
+    pub ts: i64,
+    pub day: i64,
+    pub provider: String,
+    pub model: String,
+    pub purpose: String,
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    pub latency_ms: i64,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChallengeEvent {
+    pub ts: i64,
+    pub domain: String,
+    pub kind: String,
+    pub strategy: String,
+    pub ok: bool,
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -390,6 +442,90 @@ impl Store {
             history_deleted,
             logs_deleted,
         })
+    }
+
+    /// 记一次模型调用（每次都必须记）。
+    pub fn record_llm_call(&self, call: &LlmCall) -> Result<i64> {
+        let conn = self.lock();
+        conn.execute(
+            r#"INSERT INTO llm_calls
+               (ts,day,provider,model,purpose,prompt_tokens,completion_tokens,latency_ms,ok,error)
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"#,
+            params![
+                call.ts,
+                call.day,
+                call.provider,
+                call.model,
+                call.purpose,
+                call.prompt_tokens,
+                call.completion_tokens,
+                call.latency_ms,
+                call.ok as i64,
+                call.error
+            ],
+        )?;
+        let id = conn.last_insert_rowid();
+        if call.ok {
+            let used = call.prompt_tokens + call.completion_tokens;
+            conn.execute(
+                r#"INSERT INTO ai_budget (day,tokens_used) VALUES (?1,?2)
+                   ON CONFLICT(day) DO UPDATE SET tokens_used = tokens_used + ?2"#,
+                params![call.day, used],
+            )?;
+        }
+        Ok(id)
+    }
+
+    /// 当天已用 token。
+    pub fn ai_tokens_used(&self, day: i64) -> Result<i64> {
+        let conn = self.lock();
+        let v = conn
+            .query_row(
+                "SELECT tokens_used FROM ai_budget WHERE day=?1",
+                params![day],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(v.unwrap_or(0))
+    }
+
+    /// 按天汇总用量（最近 n 天）。
+    pub fn llm_usage(&self, days: usize) -> Result<Vec<(i64, i64, i64)>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            r#"SELECT day, SUM(prompt_tokens), SUM(completion_tokens) FROM llm_calls
+               WHERE ok=1 GROUP BY day ORDER BY day DESC LIMIT ?1"#,
+        )?;
+        let rows = stmt.query_map(params![days as i64], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 记一次挑战结果（成功/失败，供每域策略学习用）。
+    pub fn record_challenge(&self, event: &ChallengeEvent) -> Result<()> {
+        let conn = self.lock();
+        conn.execute(
+            r#"INSERT INTO challenge_events (ts,domain,kind,strategy,ok,detail)
+               VALUES (?1,?2,?3,?4,?5,?6)"#,
+            params![
+                event.ts,
+                event.domain,
+                event.kind,
+                event.strategy,
+                event.ok as i64,
+                event.detail
+            ],
+        )?;
+        Ok(())
     }
 
     /// 表结构摘要，给 `cb db schema` 用。
