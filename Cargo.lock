@@ -330,6 +330,7 @@ dependencies = [
  "encoding_rs",
  "insta",
  "predicates",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

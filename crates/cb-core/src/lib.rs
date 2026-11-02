@@ -6,6 +6,7 @@
 
 pub mod envelope;
 pub mod error;
+pub mod export;
 pub mod fetch;
 pub mod selftest;
 pub mod tools;

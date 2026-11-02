@@ -38,7 +38,7 @@
 - [ ] cb-ai：provider（deepseek / openai-compatible / ollama）+ ledger + 预算闸
 - [ ] challenge 探测与策略阶梯（含 LLM 升级、sampling 回调）
 - [ ] agent 最小循环（快照 → 动作 → delta）
-- [ ] `cb export --to html|md`
+- [x] `cb export --to html|md`（单文件 HTML：剥脚本/外链样式/内联事件，注入阅读样式；7 个测试）
 
 ## M3 JS 与会话
 

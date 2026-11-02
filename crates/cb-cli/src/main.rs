@@ -57,6 +57,8 @@ enum Cmd {
     Mcp(commands::mcp::McpArgs),
     /// 本地库维护（prune / stats）
     Db(commands::db::DbArgs),
+    /// 导出成单文件 HTML 或 markdown
+    Export(commands::export::ExportArgs),
 }
 
 fn default_db_path() -> PathBuf {
@@ -205,6 +207,57 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant) -> Result<i32, CbError> {
                     cb_mcp::serve_stdio(ctx, replay.clone())
                         .await
                         .map_err(|e| CbError::other(e.to_string()))?;
+                }
+            }
+            Ok(0)
+        }
+        Cmd::Export(args) => {
+            let format = args.to.to_ascii_lowercase();
+            if format != "html" && format != "md" && format != "markdown" {
+                return Err(CbError::usage(format!(
+                    "unknown --to value: {} (html|md)",
+                    args.to
+                )));
+            }
+            let opts = cb_core::FetchOpts {
+                url: args.url.clone(),
+                format: cb_core::Format::Html,
+                fresh: args.fresh,
+                replay: args.replay.clone(),
+                ..Default::default()
+            };
+            let outcome = cb_core::fetch_page(ctx, &opts).await?;
+            let content = if format == "html" {
+                cb_core::export::single_file_html(&outcome.raw, &outcome.title, &outcome.final_url)
+            } else {
+                outcome.markdown.clone()
+            };
+            let elapsed = started.elapsed().as_millis() as u64;
+            let meta = output::meta(elapsed, outcome.cached, ctx.profile.as_str());
+            // 导出时 --out 与 --json 可以并存：文件照写，信封只报路径与体积。
+            if let Some(path) = &args.out {
+                std::fs::write(path, &content)
+                    .map_err(|e| CbError::other(format!("write {}: {e}", path.display())))?;
+                if !cli.json {
+                    eprintln!("wrote {} ({} bytes)", path.display(), content.len());
+                }
+            }
+            if cli.json {
+                let mut data = serde_json::json!({
+                    "url": outcome.url,
+                    "final_url": outcome.final_url,
+                    "format": format,
+                    "bytes": content.len(),
+                });
+                if args.out.is_none() {
+                    data["content"] = serde_json::Value::String(content);
+                }
+                let envelope = Envelope::ok(meta, data);
+                output::print_json(&envelope);
+            } else if args.out.is_none() {
+                print!("{content}");
+                if !content.ends_with('\n') {
+                    println!();
                 }
             }
             Ok(0)

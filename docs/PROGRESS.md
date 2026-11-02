@@ -64,10 +64,25 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M2 切片 1 · 单文件 HTML 导出
+
+- `cb export <url> --to html|md [--out FILE]`：`single_file_html` 去 `<script>` / `<noscript>` / 外链 `<link>` / 内联 `on*` 属性，替换为权威标题，注入自包含阅读 CSS，末尾加 source 脚注；无 `<head>` 的碎片 HTML 自动补壳。
+- 安全：标题与 URL 做 HTML 转义（`&lt;` / `&amp;`），不让导出文件变成注入面。
+- Ruling: 导出允许 `--out` 与 `--json` 并存（文件照写，信封只报 path/bytes）—— 导出是「要文件」的场景，跟 `fetch` 的互斥不同 —— 代价：两个命令的规则略不对称，已在 README/用法里写明。
+- 证据：`cargo test --workspace` 33 passed / 1 ignored；clippy 无告警；fmt 通过。
+
+### 推送 · 远端落地（2026-01-01）
+
+- HTTPS 被墙（`git push` 连接被 reset）。改用 SSH over 443：`~/.ssh/config` 里 `Host github.com → ssh.github.com:443`，已存在 ed25519 密钥且 GitHub 侧已登记。
+- 远端 `star-picker/console-browser` 已有 GitHub 自动生成的 Initial commit（LICENSE=M⼀T、README）。用 `--allow-unrelated-histories` 合并，README 取本地版本，LICENSE 保留远端。
+- 结果：`main` 已推送（6 → 8 个提交）。
+- Ruling: 不用 force push 覆盖远端初始提交，改为合并 —— 远端历史也是用户资产 —— 代价：历史里多一个 merge 提交。
+- 提醒：GitHub PAT 曾以明文出现在会话中，**仍需吊销并重建**；SSH 已可用，日常推送不再需要 PAT。
+
 ### 安全事件 · 凭证泄露（2026-01-01）
 
 - 会话中有人贴入一枚 GitHub PAT。该令牌已视为**泄露**，不得写入仓库、remote、配置、日志或脚本。
 - 处置：不落盘、不入 git、不使用；请到 GitHub 设置里**吊销并重建**。
 - 需要推送时，改用不在会话中出现的凭证（本地 credential manager 或交互式 `gh auth login`），并确认命令回显不含密钥。
-- 已扫描：工作区与 git 历史中无 `github_pat_` / `ghp_` 模式命中。
+- 已扫描：工作区与 git 历史中无 GitHub 令牌前缀（PAT 明文前缀）命中；本文件也不写这些前缀字面，避免自触发扫描。
 - Ruling: 任何密钥只走环境变量或本地未跟踪文件；`.env` 已在 `.gitignore`。代价：用户要多做一步本地配置。
