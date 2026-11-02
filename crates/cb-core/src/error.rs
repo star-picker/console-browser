@@ -91,6 +91,17 @@ impl CbError {
     }
 
     /// 本地配置缺失/未就绪：带「需要你做什么」的提示。
+    /// 需要人：登录墙 / 人机验证。code=needs_login，needs_user.kind=login|captcha。
+    pub fn needs_login(message: impl Into<String>, url: &str, kind: &str, hint: &str) -> CbError {
+        let mut err = CbError::new("needs_login", message, false);
+        err.body.needs_user = Some(NeedsUser {
+            kind: kind.to_string(),
+            url: Some(url.to_string()),
+            hint: hint.to_string(),
+        });
+        err
+    }
+
     pub fn new_local(code: &str, message: impl Into<String>, hint: &str) -> CbError {
         let mut err = CbError::new(code, message, false);
         err.body.needs_user = Some(NeedsUser {
@@ -117,7 +128,7 @@ impl CbError {
             "js_error" => EXIT_JS,
             "not_found" => EXIT_NOT_FOUND,
             "timeout" => EXIT_TIMEOUT,
-            "needs_auth" => EXIT_NEEDS_AUTH,
+            "needs_auth" | "needs_login" => EXIT_NEEDS_AUTH,
             "budget_exhausted" => EXIT_BUDGET,
             _ => EXIT_OTHER,
         }

@@ -77,6 +77,11 @@ pub struct FetchOutcome {
     pub cached: bool,
     pub cache_age_s: Option<i64>,
     pub bytes: usize,
+    /// 结构化文档（TUI/webui 用）；不进 JSON，避免体积爆炸。
+    #[serde(skip)]
+    pub doc: Option<cb_extract::RenderDoc>,
+    /// 识别到的登录墙 / 人机验证（不自动解决，只报告）。
+    pub login: Option<crate::login::LoginWall>,
 }
 
 /// 解析 Cache-Control: max-age=N，失败返回默认 TTL。
@@ -388,7 +393,13 @@ fn build_outcome(
         ok: true,
     })?;
 
+    let render_doc = cb_extract::to_document(&html, &extract_opts).ok();
+    let has_session_cookie = false;
+    let login = crate::login::detect_login_wall(final_url, headers, &html, has_session_cookie);
+
     Ok(FetchOutcome {
+        doc: render_doc,
+        login,
         url: requested_url.to_string(),
         final_url: final_url.to_string(),
         status,

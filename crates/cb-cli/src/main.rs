@@ -17,7 +17,7 @@ use std::time::Instant;
 #[derive(Debug, Parser)]
 #[command(
     name = "cb",
-    version,
+    version = cb_core::version::VERSION,
     about = "console-browser · 网页转 AI 可读文本 / web pages to AI-readable text",
     long_about = "console-browser (cb)\n\
         把网页变成干净的 markdown，本地 sqlite 存一切，可以挂成 MCP 服务端给 agent 用。\n\

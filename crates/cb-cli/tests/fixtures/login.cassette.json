@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://site.example/login",
+      "final_url": "https://site.example/login",
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "body": "<html><head><title>Sign in</title></head><body><main><h1>Sign in</h1><form><label>Email <input name=\"email\"></label><label>Password <input type=\"password\" name=\"pw\"></label><button>Sign in</button></form><p>Sign in to continue to your dashboard and access saved settings after the login flow completes.</p></main></body></html>"
+    }
+  ]
+}

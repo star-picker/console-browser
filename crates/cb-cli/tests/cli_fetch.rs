@@ -41,7 +41,16 @@ fn fetch_md_json_shape_and_cache_hit() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["meta"]["cached"], false);
     assert_eq!(v["meta"]["profile"], "chrome");
-    assert_eq!(v["meta"]["engine"], "cb/0.1.0");
+    let engine = v["meta"]["engine"].as_str().expect("engine");
+    assert!(
+        engine.starts_with("cb/0.1.0."),
+        "engine must carry build stamp, got {engine}"
+    );
+    assert_eq!(
+        engine.split('.').count(),
+        5,
+        "xx.yy.zz.YYYYMMDD.hash shape: {engine}"
+    );
     let content = v["data"]["content"].as_str().expect("content string");
     assert!(content.contains("# Hello World"), "got: {content}");
     assert!(content.contains("```rust"), "code fence with language");
@@ -203,4 +212,34 @@ fn out_and_json_together_is_usage_error() {
         !out.exists(),
         "--out must not be written when --json wins an error"
     );
+}
+
+#[test]
+fn login_wall_is_reported_not_fatal() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("login.cassette.json");
+    let mut cmd = Command::cargo_bin("cb").expect("bin");
+    cmd.arg("--db").arg(dir.path().join("cb.db"));
+    cmd.args([
+        "--json",
+        "fetch",
+        "https://site.example/login",
+        "--replay",
+        &cassette,
+    ]);
+    let out = cmd.assert().success().get_output().clone();
+    let v = parse(&out.stdout);
+    assert_eq!(v["data"]["login"]["kind"], "login", "{}", v);
+    assert!(
+        v["data"]["login"]["evidence"]
+            .as_array()
+            .expect("evidence")
+            .len()
+            >= 1
+    );
+    assert!(
+        v["data"].get("doc").is_none(),
+        "structured doc must not leak into json: {v}"
+    );
+    assert!(v["data"]["login"]["hints"].as_array().expect("hints").len() >= 1);
 }

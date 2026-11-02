@@ -160,7 +160,7 @@ pub async fn serve_stdio(ctx: &Ctx, replay: Option<PathBuf>) -> anyhow::Result<(
                 "result": {
                     "protocolVersion": PROTOCOL_VERSION,
                     "capabilities": { "tools": {} },
-                    "serverInfo": { "name": "cb", "version": env!("CARGO_PKG_VERSION") },
+                    "serverInfo": { "name": "cb", "version": cb_core::version::VERSION },
                 }
             }),
             "ping" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
