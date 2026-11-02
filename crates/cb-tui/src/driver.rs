@@ -152,6 +152,30 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
                     }
                 }
                 CtEvent::Resize(w, h) => app.resize(w, h),
+                CtEvent::Mouse(mouse) => {
+                    use crossterm::event::MouseEventKind;
+                    match mouse.kind {
+                        MouseEventKind::ScrollUp => app.scroll_by(-3),
+                        MouseEventKind::ScrollDown => app.scroll_by(3),
+                        MouseEventKind::Down(_) => {
+                            // 点到第 n 行 → 聚焦该行第一个链接
+                            let body_top = 2u16;
+                            if mouse.row >= body_top {
+                                let line_idx = app.tab().scroll + (mouse.row - body_top);
+                                let target = app
+                                    .tab()
+                                    .page
+                                    .as_ref()
+                                    .and_then(|p| p.layout.lines.get(line_idx as usize))
+                                    .and_then(|l| l.cells.iter().find_map(|c| c.link));
+                                if let Some(id) = target {
+                                    app.tab_mut().focus = Some(id);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 _ => {}
             }
         }
