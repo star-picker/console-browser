@@ -114,7 +114,71 @@ $ cb search "rust async runtime" --engine ddg --json
 
 ## 三、P1 · 影响可用性和体验
 
-### P1-1　`browse_url` 不返回「正文占比」
+### P1-1　懒加载图片的 `data-src` 未被提取（通用问题）
+
+**实测案例：** 微信公众号文章
+
+```
+$ cb fetch "https://mp.weixin.qq.com/s/..." --to md
+→ 正文 1798 字（比 Playwright 手动抓的 602 字更全）
+→ 图片 0 张
+```
+
+**同页用 Playwright 抓，读出 15 张图片 URL。**
+
+**根因（通用形态）：**
+
+**大量站的 `<img>` 不写 `src`，而是把真地址放在 `data-src` / `data-original` / `data-lazy-src` / `data-actualsrc`，`src` 里是一张 1×1 占位图或 base64 微图。**
+
+**如果只取 `src`，结果是：**
+
+```
+① 一张图都拿不到（占位图被过滤掉）
+② 或者拿到一堆无效的占位 URL
+```
+
+**受影响的站（不止微信）：**
+
+```
+微信公众号     data-src
+知乎            data-original
+简书            data-src
+掘金            data-src
+Medium          data-src
+大量 WordPress data-lazy-src
+各种 CDN 图床   data-original / data-actualsrc
+```
+
+**建议：**
+
+**按优先级取第一个非占位的属性：**
+
+```
+srcset（取最大尺寸的一项）
+  > data-src
+  > data-original
+  > data-lazy-src
+  > data-actualsrc
+  > data-original-src
+  > src（最后兜底）
+```
+
+**占位图判定（同时满足即跳过）：**
+
+```
+① 尺寸 ≤ 2×2（若有 width/height 属性）
+② 或 URL 含 placeholder / blank / loading / spacer / 1x1 / transparent
+③ 或 data: URI 且长度 < 200 字节
+```
+
+**输出侧：** markdown 里保留 `![alt](url)`，同时 `--json` 时给 `data.images: [{url, alt, width, height, lazy: true}]`，让调用方知道这张图是不是懒加载来的。
+
+**为什么这条是通用坑而不是站点评坑：** 懒加载是 2020 年之后绝大多数内容站的默认做法，任何「HTML → markdown」的转换器只要只读 `src` 就会漏图，且**漏得静默**（没人报错，就是没图）。
+
+---
+
+
+### P1-2　`browse_url` 不返回「正文占比」
 
 **现象：** 抓到微信公众号时，markdown 里混入了：
 
@@ -141,7 +205,7 @@ Scan to Follow
 
 ---
 
-### P1-2　没有「正文长度下限」保护
+### P1-3　没有「正文长度下限」保护
 
 **现象：** `cb fetch https://example.com --to md` 输出：
 
@@ -156,7 +220,7 @@ This is not a service; avoid relying on it for testing and monitoring purposes.
 
 ---
 
-### P1-3　`--to html` 的导出没有验证入口
+### P1-4　`--to html` 的导出没有验证入口
 
 **`cb export --to html` 做了很多正确的事**（剥 script / 外链 link / 内联 on* / HTML 转义），**但没有命令能让我确认「导出的文件真的自包含」。**
 
@@ -172,7 +236,7 @@ This is not a service; avoid relying on it for testing and monitoring purposes.
 
 ---
 
-### P1-4　缓存命中不区分「新鲜」和「陈旧」
+### P1-5　缓存命中不区分「新鲜」和「陈旧」
 
 **`meta.cached` 是布尔值，但 `cache_entries` 表里有 `expires_at`。**
 
@@ -182,7 +246,7 @@ This is not a service; avoid relying on it for testing and monitoring purposes.
 
 ---
 
-### P1-5　`tools --json` 的 `description` 为空
+### P1-6　`tools --json` 的 `description` 为空
 
 **现象：**
 
@@ -251,7 +315,7 @@ llm     skipped  （未配置）
 |---|---|---|---|
 | example.com | `cb fetch --to md` | 2 句 | ✓ 正确（本来就这么少） |
 | 阮一峰博客 | `cb fetch --to md` | 标题/作者/日期/引用块/图片链接全对 | ✓✓ 优秀 |
-| 微信公众号 | `cb fetch --to md` | 正文完整，含 6 处控件文案 | ✓ 可用，P1-1 可改进 |
+| 微信公众号 | `cb fetch --to md` | 正文 1798 字（比 Playwright 多 3 倍），**图片 0 张** | ✓ 文字优秀 / ✗ 图片全丢（P1-1） |
 | GitHub 搜索 | `cb search --engine gh` | 3 条，带 ★ 数 | ✓✓ 优秀（走 REST） |
 | Bing 搜索 | `cb search --engine bing` | `ok:true` 空结果 | ✗ P0-1 |
 | DDG 搜索 | `cb search --engine ddg` | 21s 后 network error | ✗ P0-2 |
@@ -277,11 +341,14 @@ llm     skipped  （未配置）
 ```
 1. cb search 补 empty_reason + http_status + bytes          （半小时）
 2. cb search --engine auto + 连接失败快速切换                （一小时）
-3. 错误码补 parse / empty / blocked                          （半小时）
-4. meta.extract 补 container_score / chars / paragraphs      （一小时）
-5. meta.cache 从布尔改成对象（hit / age_s / stale）           （半小时）
-6. cb tools --json 带上 description                          （二十分钟）
-7. selftest status 细分                                      （二十分钟）
+3. 图片属性优先级链 + 占位图判定                             （一小时）  ← 新增
+4. 错误码补 parse / empty / blocked                          （半小时）
+5. meta.extract 补 container_score / chars / paragraphs      （一小时）
+6. meta.cache 从布尔改成对象（hit / age_s / stale）           （半小时）
+7. cb tools --json 带上 description                          （二十分钟）
+8. selftest status 细分                                      （二十分钟）
 ```
 
 **前三条修完，这个工具对我来说就从「可用」变成「可信」。**
+
+**关于第 3 条排这么前：** 它虽然被归类在 P1，但对「抓文章」这个主用途来说，**丢图的伤害比搜索偶然空结果更常见、更不可补救**——文字可以再抓一次，图不在原文里就永远找不回来了。人物报道、学校喜报、教程配图，全在图片里。
