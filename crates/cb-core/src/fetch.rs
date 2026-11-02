@@ -99,13 +99,13 @@ pub fn cache_ttl_secs(headers: &[(String, String)]) -> i64 {
 fn status_error(status: u16, url: &str) -> CbError {
     match status {
         401 | 407 => CbError::needs_auth(format!("http {status}"), url),
-        403 | 429 | 503 => CbError::challenge(
+        403 => CbError::challenge(
             format!("http {status}: looks like an anti-bot response"),
             url,
             "escalate: rotate profile, warm cookies, or hand off to the calling agent",
         ),
         404 | 410 => CbError::not_found(format!("http {status}")),
-        s if (500..600).contains(&s) => CbError::network(format!("http {s}")),
+        // 429 / 5xx 是瞬时的，不是反爬：可重试，交给调用方决定。
         s => CbError::network(format!("http {s}")),
     }
 }
@@ -120,18 +120,23 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
     if !opts.fresh {
         if let Some(entry) = ctx.store.cache_get(&key).map_err(crate::error::store_err)? {
             if entry.expires_at > now {
-                let html = String::from_utf8_lossy(&entry.body).to_string();
                 let age = now - entry.created_at;
                 let headers: Vec<(String, String)> = serde_json::from_str::<
                     std::collections::BTreeMap<String, String>,
                 >(&entry.headers)
                 .map(|m| m.into_iter().collect())
                 .unwrap_or_default();
+                let html = decode_body(&entry.body, &headers);
+                // 重定向后的真实地址要随缓存一起存，否则命中缓存时元数据会翻转。
+                let final_url = serde_json::from_str::<serde_json::Value>(&entry.validators)
+                    .ok()
+                    .and_then(|v| v["final_url"].as_str().map(|s| s.to_string()))
+                    .unwrap_or_else(|| entry.url.clone());
                 return build_outcome(
                     ctx,
                     opts,
                     &opts.url,
-                    &entry.url,
+                    &final_url,
                     entry.status as u16,
                     &headers,
                     html,
@@ -173,11 +178,19 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
     }
 
     let content_type = resp.header("content-type").unwrap_or("").to_string();
-    let body_text = resp.text();
 
     if resp.status >= 400 {
         return Err(status_error(resp.status, &opts.url));
     }
+    ensure_text_content_type(&content_type)?;
+    if resp.body.len() > MAX_BODY_BYTES {
+        return Err(CbError::too_large(format!(
+            "body is {} bytes, cap is {} bytes",
+            resp.body.len(),
+            MAX_BODY_BYTES
+        )));
+    }
+    let body_text = decode_body(&resp.body, &resp.headers);
 
     let outcome = build_outcome(
         ctx,
@@ -204,6 +217,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
         let validators = serde_json::json!({
             "etag": resp.header("etag"),
             "last_modified": resp.header("last-modified"),
+            "final_url": resp.final_url,
         })
         .to_string();
         ctx.store.cache_put(&cb_store::CacheEntry {
@@ -252,6 +266,7 @@ fn build_outcome(
         .unwrap_or_else(|| "text/html".to_string());
 
     let now = ctx.now();
+    let bytes = html.len();
     let content_sha = blake3::hash(html.as_bytes()).to_hex().to_string();
     ctx.store.put_page(&cb_store::PageRow {
         id: 0,
@@ -307,6 +322,126 @@ fn build_outcome(
         truncated: md.truncated,
         cached,
         cache_age_s,
-        bytes: 0,
+        bytes,
     })
+}
+/// 正文体积上限：防 500MB 视频/PDF 把内存和库里塞满。
+pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
+
+/// 只处理文本类响应；二进制直接拒绝，给出明确错误而不是乱码。
+fn ensure_text_content_type(content_type: &str) -> Result<(), CbError> {
+    let ct = content_type.to_ascii_lowercase();
+    if ct.is_empty()
+        || ct.starts_with("text/")
+        || ct.contains("html")
+        || ct.contains("json")
+        || ct.contains("xml")
+    {
+        return Ok(());
+    }
+    Err(CbError::other(format!("unsupported content type: {ct}")))
+}
+
+fn charset_from_headers(headers: &[(String, String)]) -> Option<String> {
+    for (k, v) in headers {
+        if k.eq_ignore_ascii_case("content-type") {
+            let lower = v.to_ascii_lowercase();
+            if let Some(pos) = lower.find("charset=") {
+                // 支持 charset="gbk" 这种带引号的写法
+                let rest = v[pos + 8..].trim_start_matches(['"', '\'']);
+                let label = rest
+                    .split([';', ' ', '"', '\''])
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                if !label.is_empty() {
+                    return Some(label.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 没有响应头 charset 时，看 HTML 前 2KB 里的 meta charset。
+fn sniff_meta_charset(body: &[u8]) -> Option<String> {
+    let head = &body[..body.len().min(2048)];
+    let text = String::from_utf8_lossy(head).to_ascii_lowercase();
+    let pos = text.find("charset=")?;
+    let rest = text[pos + 8..].trim_start_matches(['"', '\'']);
+    let label = rest
+        .split(['"', '\'', '>', ' ', '/'])
+        .next()
+        .unwrap_or("")
+        .trim();
+    if label.is_empty() {
+        None
+    } else {
+        Some(label.to_string())
+    }
+}
+
+/// 按响应头 charset（其次 meta charset）解码；都没有就按 UTF-8 容错。
+/// 中文/日文站点走 GBK/Big5/Shift_JIS 时这一步决定内容是不是乱码。
+pub fn decode_body(body: &[u8], headers: &[(String, String)]) -> String {
+    let label = charset_from_headers(headers).or_else(|| sniff_meta_charset(body));
+    if let Some(label) = label {
+        if let Some(encoding) = encoding_rs::Encoding::for_label(label.as_bytes()) {
+            let (decoded, _, _) = encoding.decode(body);
+            return decoded.into_owned();
+        }
+    }
+    String::from_utf8_lossy(body).into_owned()
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ct(value: &str) -> Vec<(String, String)> {
+        vec![("content-type".to_string(), value.to_string())]
+    }
+
+    #[test]
+    fn decodes_gbk_when_charset_declared() {
+        // "中文" 的 GBK 字节
+        let body = [0xD6u8, 0xD0, 0xCE, 0xC4];
+        assert_eq!(decode_body(&body, &ct("text/html; charset=gbk")), "中文");
+    }
+
+    #[test]
+    fn decodes_from_meta_charset_when_header_silent() {
+        let mut body = b"<html><head><meta charset=\"gbk\"></head><body>".to_vec();
+        body.extend_from_slice(&[0xD6u8, 0xD0, 0xCE, 0xC4]);
+        body.extend_from_slice(b"</body></html>");
+        let text = decode_body(&body, &ct("text/html"));
+        assert!(text.contains("中文"), "got: {text}");
+    }
+
+    #[test]
+    fn rejects_binary_content_types() {
+        assert!(ensure_text_content_type("image/png").is_err());
+        assert!(ensure_text_content_type("application/pdf").is_err());
+        assert!(ensure_text_content_type("text/html; charset=utf-8").is_ok());
+        assert!(ensure_text_content_type("application/json").is_ok());
+    }
+
+    #[test]
+    fn cache_ttl_honours_no_store_and_max_age() {
+        assert_eq!(
+            cache_ttl_secs(
+                &ct("text/html")
+                    .into_iter()
+                    .chain(vec![(
+                        "cache-control".to_string(),
+                        "max-age=60".to_string()
+                    )])
+                    .collect::<Vec<_>>()
+            ),
+            60
+        );
+        assert_eq!(
+            cache_ttl_secs(&[("cache-control".to_string(), "no-store".to_string())]),
+            0
+        );
+    }
 }

@@ -55,6 +55,8 @@ struct Ctx {
     inline_links: bool,
     links: Vec<Link>,
     images: Vec<Image>,
+    /// 正文容器是否语义化（article/main）：决定页面级页眉页脚要不要保留。
+    semantic_root: bool,
 }
 
 /// 折叠空白，但保留首尾各一个空格（行内元素之间需要靠它分词）。
@@ -218,6 +220,10 @@ fn render_element(ctx: &mut Ctx, el: ElementRef<'_>, indent: usize, blocks: &mut
     if cb_dom::is_noise(&el) {
         return;
     }
+    // 页面级页眉页脚默认丢掉；但文章自己的 header（标题/byline）要留。
+    if cb_dom::is_page_chrome(&el) && !ctx.semantic_root {
+        return;
+    }
     let name = el.value().name();
     match name {
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
@@ -228,7 +234,9 @@ fn render_element(ctx: &mut Ctx, el: ElementRef<'_>, indent: usize, blocks: &mut
                 blocks.push(format!("{} {t}", "#".repeat(level)));
             }
         }
-        "p" | "div" | "section" | "article" | "main" | "body" | "figure" | "details" | "dl" => {
+        // 结构性容器永远递归，绝不把整页压成一行。
+        "body" | "main" | "article" => render_children(ctx, el, indent, blocks),
+        "p" | "div" | "section" | "figure" | "details" | "dl" => {
             if name == "p" || !has_block_children(el) {
                 push_inline_block(ctx, el, blocks);
             } else {
@@ -363,16 +371,27 @@ fn render_table(table: ElementRef<'_>) -> Option<String> {
 
 pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdown> {
     let doc = Document::parse(html);
-    let root = match &opts.scope {
-        Some(css) => doc
-            .select(css)
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("scope selector matched nothing: {css}"))?,
-        None => doc
-            .main_content()
-            .or_else(|| doc.body())
-            .ok_or_else(|| anyhow::anyhow!("no content container found"))?,
+    let (root, semantic_root) = match &opts.scope {
+        Some(css) => (
+            doc.select(css)
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("scope selector matched nothing: {css}"))?,
+            true,
+        ),
+        None => {
+            let el = doc
+                .main_content()
+                .or_else(|| doc.body())
+                .ok_or_else(|| anyhow::anyhow!("no content container found"))?;
+            let semantic = matches!(el.value().name(), "article" | "main")
+                || el
+                    .value()
+                    .attr("role")
+                    .map(|role| role.eq_ignore_ascii_case("main"))
+                    .unwrap_or(false);
+            (el, semantic)
+        }
     };
 
     let all_links: Vec<Link> = match sel("a") {
@@ -414,6 +433,7 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
         inline_links,
         links: Vec::new(),
         images: Vec::new(),
+        semantic_root,
     };
     let mut blocks = Vec::new();
     render_element(&mut ctx, root, 0, &mut blocks);
@@ -478,11 +498,148 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
     })
 }
 
+/// token 估算：CJK 一字≈一 token，其余按 4 字符≈1 token。
+/// 纯 chars/4 在中文页面上会低估 3-4 倍，直接烧调用方的预算。
 pub fn estimate_tokens(text: &str) -> usize {
-    text.chars().count().div_ceil(4)
+    let mut cjk = 0usize;
+    let mut other = 0usize;
+    for ch in text.chars() {
+        if is_cjk(ch) {
+            cjk += 1;
+        } else {
+            other += 1;
+        }
+    }
+    cjk + other.div_ceil(4)
+}
+
+fn is_cjk(ch: char) -> bool {
+    matches!(ch as u32,
+        0x1100..=0x11FF      // 韩文字母
+        | 0x2E80..=0x303F    // CJK 部首、标点
+        | 0x3040..=0x30FF    // 假名
+        | 0x3400..=0x4DBF    // 扩展 A
+        | 0x4E00..=0x9FFF    // 基本汉字
+        | 0xAC00..=0xD7AF    // 韩文音节
+        | 0xF900..=0xFAFF    // 兼容汉字
+        | 0x20000..=0x2FA1F) // 扩展 B-F
 }
 
 /// 便捷入口：用默认选项提取 markdown。
 pub fn extract(html: &str) -> anyhow::Result<Markdown> {
     extract_markdown(html, &ExtractOpts::default())
+}
+/// markdown → 纯文本（`--to text`）：去掉标记，但保留结构与可读性。
+pub fn to_plain_text(markdown: &str) -> String {
+    let mut out = String::with_capacity(markdown.len());
+    let mut in_fence = false;
+    for line in markdown.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if trimmed.trim().is_empty() {
+            out.push('\n');
+            continue;
+        }
+        let mut text = trimmed.to_string();
+        if let Some(rest) = text.strip_prefix('>') {
+            text = rest.trim_start().to_string();
+        }
+        while text.starts_with('#') {
+            text.remove(0);
+        }
+        let text = text.trim_start().to_string();
+        let text = if text.starts_with('|') {
+            let cells: Vec<String> = text
+                .trim_matches('|')
+                .split('|')
+                .map(|c| c.trim().to_string())
+                .filter(|c| !c.chars().all(|ch| ch == '-' || ch == ':'))
+                .collect();
+            cells.join("\t")
+        } else {
+            text
+        };
+        out.push_str(&inline_to_plain(&text));
+        out.push('\n');
+    }
+    let mut squeezed = String::with_capacity(out.len());
+    let mut blank_run = 0;
+    for line in out.lines() {
+        if line.trim().is_empty() {
+            blank_run += 1;
+            if blank_run > 1 {
+                continue;
+            }
+        } else {
+            blank_run = 0;
+        }
+        squeezed.push_str(line);
+        squeezed.push('\n');
+    }
+    squeezed.trim_start_matches('\n').to_string()
+}
+
+fn inline_to_plain(line: &str) -> String {
+    // [text](url) -> text (url)；![alt](url) -> [image: alt] url；去掉 ** * ` 标记。
+    let mut out = String::with_capacity(line.len());
+    let bytes: Vec<char> = line.chars().collect();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let ch = bytes[i];
+        if ch == '!' && i + 1 < bytes.len() && bytes[i + 1] == '[' {
+            if let Some((label, url, next)) = parse_link(&bytes, i + 1) {
+                out.push_str(&format!("[image: {label}] {url}"));
+                i = next;
+                continue;
+            }
+        }
+        if ch == '[' {
+            if let Some((label, url, next)) = parse_link(&bytes, i) {
+                if label.is_empty() {
+                    out.push_str(&url);
+                } else {
+                    out.push_str(&format!("{label} ({url})"));
+                }
+                i = next;
+                continue;
+            }
+        }
+        if ch == '*' || ch == '`' {
+            i += 1;
+            continue;
+        }
+        out.push(ch);
+        i += 1;
+    }
+    out
+}
+
+fn parse_link(chars: &[char], open: usize) -> Option<(String, String, usize)> {
+    let mut i = open + 1;
+    let mut label = String::new();
+    while i < chars.len() && chars[i] != ']' {
+        label.push(chars[i]);
+        i += 1;
+    }
+    if i + 1 >= chars.len() || chars[i] != ']' || chars[i + 1] != '(' {
+        return None;
+    }
+    i += 2;
+    let mut url = String::new();
+    while i < chars.len() && chars[i] != ')' {
+        url.push(chars[i]);
+        i += 1;
+    }
+    if i >= chars.len() {
+        return None;
+    }
+    Some((label, url, i + 1))
 }

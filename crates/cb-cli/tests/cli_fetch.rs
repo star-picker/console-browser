@@ -119,3 +119,88 @@ fn unknown_format_is_usage_error() {
         .assert()
         .code(2);
 }
+#[test]
+fn text_format_is_plain_not_markdown() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("page.cassette.json");
+    let out = cb(&dir)
+        .args([
+            "fetch",
+            "https://example.com/a",
+            "--to",
+            "text",
+            "--replay",
+            &cassette,
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    let content = v["data"]["content"].as_str().expect("content");
+    assert!(content.contains("Hello World"), "got: {content}");
+    assert!(
+        !content.contains("# Hello World"),
+        "plain text must not keep markdown headings: {content}"
+    );
+    assert!(
+        !content.contains("**"),
+        "plain text must not keep emphasis markers: {content}"
+    );
+}
+
+#[test]
+fn cache_hit_preserves_redirect_target() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("redirect.cassette.json");
+
+    let out = cb(&dir)
+        .args(["fetch", "https://example.com/old", "--replay", &cassette])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let cold = parse(&out);
+    assert_eq!(cold["data"]["final_url"], "https://example.com/new");
+    assert_eq!(cold["meta"]["cached"], false);
+
+    let out2 = cb(&dir)
+        .args(["fetch", "https://example.com/old", "--replay", &cassette])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let warm = parse(&out2);
+    assert_eq!(warm["meta"]["cached"], true);
+    assert_eq!(
+        warm["data"]["final_url"], "https://example.com/new",
+        "cache hit must not flip the redirect metadata"
+    );
+    assert_eq!(warm["data"]["bytes"], cold["data"]["bytes"]);
+}
+
+#[test]
+fn out_and_json_together_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("page.cassette.json");
+    let out = dir.path().join("x.md");
+    cb(&dir)
+        .args([
+            "fetch",
+            "https://example.com/a",
+            "--json",
+            "--out",
+            out.to_str().expect("utf8"),
+            "--replay",
+            &cassette,
+        ])
+        .assert()
+        .code(2);
+    assert!(
+        !out.exists(),
+        "--out must not be written when --json wins an error"
+    );
+}

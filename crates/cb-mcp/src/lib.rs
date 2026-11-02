@@ -99,9 +99,17 @@ async fn call_tool(ctx: &Ctx, replay: Option<&std::path::Path>, params: &Value) 
 pub async fn serve_stdio(ctx: &Ctx, replay: Option<PathBuf>) -> anyhow::Result<()> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
+    let mut reader = stdin.lock();
 
-    for line in stdin.lock().lines() {
-        let line = line?;
+    loop {
+        // 逐字节读到换行：单行不是合法 UTF-8 也不能把服务端搞死。
+        let mut buf: Vec<u8> = Vec::new();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) => return Err(e.into()),
+        }
+        let line = String::from_utf8_lossy(&buf).to_string();
         if line.trim().is_empty() {
             continue;
         }

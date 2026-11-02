@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/old",
+      "final_url": "https://example.com/new",
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "max-age=600"
+      },
+      "body": "<html><head><title>Moved</title></head><body><main><h1>Moved Page</h1><p>This is the redirected page body, long enough for the main content scorer to accept it as real content in this test fixture.</p></main></body></html>"
+    }
+  ]
+}

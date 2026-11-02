@@ -40,6 +40,30 @@
 - 事故：用 PowerShell `Set-Content` 改源码导致 UTF-8 被二次编码、文件损坏；已从 git 还原并用 read/edit 工具重做。**规则：源码只用 read/edit/write 工具改，脚本只做只读检查。**
 - 证据：`cargo test --workspace` 20 passed / 1 ignored（oracle）；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过；`scripts/cb-e2e.ps1 -SkipTests` 退出 0。
 
+### 独立审查 · M1 首轮（修复 8 项）
+
+审查由独立 reviewer 只读完成，报 10 条。已修：
+
+1. **CRITICAL 正文容器两段式评分**：语义容器门槛从 120 降到 40；结构性容器（body/main/article）永远递归，不再把整页压成一行。补两条回归测试（无语义容器的小页面 / 整页包裹 div 不得胜出）。
+2. **`--to text` 名不副实**：新增 `to_plain_text`（去标记、表格转制表符、链接转 `text (url)`），CLI 与 MCP 都走它。测试锁死「纯文本里不得出现 # 与 **」。
+3. **MCP 非 UTF-8 行会杀死服务端**：改成 `read_until(b'\n')` + lossy 解码，坏行不中断会话。测试：先写非法字节行，再 initialize，仍要应答。
+4. **字符集**：按 Content-Type charset（其次 `<meta charset>`）用 `encoding_rs` 解码，GBK/Big5/Shift_JIS 不再乱码。测试覆盖 GBK 字节与 meta 声明、带引号的 charset。
+5. **体积与类型闸门**：正文上限 8MB（`response_too_large`）；非文本类型直接拒绝并给出明确错误，不再把 PDF/视频塞进解析器和库里。
+6. **README 与实现不符**：删掉未实现的 robots.txt / 1rps / 文件日志承诺，改成「M2 计划」；新增真实存在的 `cb db prune|stats`。
+7. **错误映射**：只有 403 算挑战；429/5xx 是瞬时网络错（可重试），不再把 CDN 抖动说成反爬。
+8. **省 token 的估算**：CJK 一字 ≈ 一 token，其余 4 字符 ≈ 一 token；截断改成逐字符回退直到估算达标（中文页不再超预算 3-4 倍）。
+
+顺带修：
+- noise 判断从子串改成 class/id **词元**匹配（不再误杀 download-/shareholder）；页眉页脚只在正文容器外丢弃，文章内 header 保留。
+- 缓存命中保留重定向后的 `final_url`（元数据不再翻转）；`bytes` 不再是硬编码 0。
+- `--json` 与 `--out` 同时给 = 用法错误（之前 --out 被静默忽略）。
+- cassette 录制剔除 Set-Cookie / Authorization 等凭证类响应头。
+- `prune` 的缓存条件从「过期后再留 7 天」改成「按过期时间」，并新增 `--log` 落账（logs 表不再是死表）。
+- 补测试：退出码字符串表→退出码、`--to text`、缓存命中重定向一致性、MCP 坏行韧性。
+
+Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
+- 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
+
 ### 安全事件 · 凭证泄露（2026-01-01）
 
 - 会话中有人贴入一枚 GitHub PAT。该令牌已视为**泄露**，不得写入仓库、remote、配置、日志或脚本。

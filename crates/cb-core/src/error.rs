@@ -90,6 +90,10 @@ impl CbError {
         CbError::new("budget_exhausted", message, false)
     }
 
+    pub fn too_large(message: impl Into<String>) -> CbError {
+        CbError::new("response_too_large", message, false)
+    }
+
     pub fn other(message: impl Into<String>) -> CbError {
         CbError::new("error", message, false)
     }
@@ -132,4 +136,42 @@ impl From<cb_net::NetError> for CbError {
 /// 存储错误统一包装（cb-store 用 anyhow，不引入独立错误类型）。
 pub fn store_err(e: anyhow::Error) -> CbError {
     CbError::other(format!("store: {e}"))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exit_code_table_is_stable() {
+        // 这张表是对外契约：调用方按码分支，改动必须是有意的。
+        let cases = [
+            ("usage", EXIT_USAGE),
+            ("network", EXIT_NETWORK),
+            ("not_recorded", EXIT_NETWORK),
+            ("challenge_unsolved", EXIT_CHALLENGE),
+            ("js_error", EXIT_JS),
+            ("not_found", EXIT_NOT_FOUND),
+            ("timeout", EXIT_TIMEOUT),
+            ("needs_auth", EXIT_NEEDS_AUTH),
+            ("budget_exhausted", EXIT_BUDGET),
+            ("response_too_large", EXIT_OTHER),
+            ("error", EXIT_OTHER),
+        ];
+        for (code, expected) in cases {
+            let err = CbError::new(code, "x", false);
+            assert_eq!(err.exit_code(), expected, "code {code}");
+        }
+    }
+
+    #[test]
+    fn challenge_and_auth_errors_carry_needs_user() {
+        let challenge = CbError::challenge("blocked", "https://example.com", "rotate profile");
+        let needs = challenge.body.needs_user.expect("needs_user");
+        assert_eq!(needs.kind, "challenge");
+        let auth = CbError::needs_auth("401", "https://example.com");
+        assert_eq!(
+            auth.body.needs_user.expect("needs_user").kind,
+            "credentials"
+        );
+    }
 }

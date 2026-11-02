@@ -55,6 +55,8 @@ enum Cmd {
     Tools,
     /// MCP 服务端（给 agent 调用）
     Mcp(commands::mcp::McpArgs),
+    /// 本地库维护（prune / stats）
+    Db(commands::db::DbArgs),
 }
 
 fn default_db_path() -> PathBuf {
@@ -133,10 +135,15 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant) -> Result<i32, CbError> {
             let opts = args.to_opts().map_err(|e| CbError::usage(e.to_string()))?;
             let outcome = cb_core::fetch_page(ctx, &opts).await?;
             let elapsed = started.elapsed().as_millis() as u64;
+            if cli.json && args.out.is_some() {
+                return Err(CbError::usage(
+                    "--out and --json are mutually exclusive: pick a file or a JSON envelope",
+                ));
+            }
             let body = match opts.format {
                 Format::Md => outcome.markdown.clone(),
                 Format::Html => outcome.raw.clone(),
-                Format::Text => outcome.markdown.clone(),
+                Format::Text => cb_extract::to_plain_text(&outcome.markdown),
                 Format::Json => serde_json::to_string_pretty(&outcome)
                     .map_err(|e| CbError::other(e.to_string()))?,
             };
@@ -198,6 +205,67 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant) -> Result<i32, CbError> {
                     cb_mcp::serve_stdio(ctx, replay.clone())
                         .await
                         .map_err(|e| CbError::other(e.to_string()))?;
+                }
+            }
+            Ok(0)
+        }
+        Cmd::Db(args) => {
+            match &args.cmd {
+                commands::db::DbCmd::Prune => {
+                    let report = ctx
+                        .store
+                        .prune(cb_core::now_secs())
+                        .map_err(cb_core::error::store_err)?;
+                    ctx.store
+                        .append_log(&cb_store::LogRow {
+                            id: 0,
+                            ts: cb_core::now_secs(),
+                            level: "INFO".to_string(),
+                            target: "cb.db".to_string(),
+                            message: format!(
+                                "prune: cache {} / history {} / logs {}",
+                                report.cache_deleted, report.history_deleted, report.logs_deleted
+                            ),
+                            fields: None,
+                        })
+                        .map_err(cb_core::error::store_err)?;
+                    if cli.json {
+                        let envelope = Envelope::ok(
+                            output::meta(
+                                started.elapsed().as_millis() as u64,
+                                false,
+                                ctx.profile.as_str(),
+                            ),
+                            serde_json::to_value(&report)
+                                .map_err(|e| CbError::other(e.to_string()))?,
+                        );
+                        output::print_json(&envelope);
+                    } else {
+                        println!(
+                            "pruned: cache {} · history {} · logs {}",
+                            report.cache_deleted, report.history_deleted, report.logs_deleted
+                        );
+                    }
+                }
+                commands::db::DbCmd::Stats => {
+                    let counts = ctx.store.counts().map_err(cb_core::error::store_err)?;
+                    if cli.json {
+                        let envelope = Envelope::ok(
+                            output::meta(
+                                started.elapsed().as_millis() as u64,
+                                false,
+                                ctx.profile.as_str(),
+                            ),
+                            serde_json::to_value(&counts)
+                                .map_err(|e| CbError::other(e.to_string()))?,
+                        );
+                        output::print_json(&envelope);
+                    } else {
+                        println!(
+                            "pages {} · cache {} · history {} · logs {}",
+                            counts.pages, counts.cache_entries, counts.history, counts.logs
+                        );
+                    }
                 }
             }
             Ok(0)

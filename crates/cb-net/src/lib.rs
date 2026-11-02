@@ -82,11 +82,26 @@ impl Response {
     }
 
     pub fn to_entry(&self, requested_url: &str) -> CassetteEntry {
+        // cassette 会被提交/分享：凭证类响应头一律不落盘。
+        let sensitive = [
+            "set-cookie",
+            "set-cookie2",
+            "cookie",
+            "authorization",
+            "proxy-authorization",
+            "x-api-key",
+            "x-auth-token",
+        ];
         CassetteEntry {
             url: requested_url.to_string(),
             final_url: self.final_url.clone(),
             status: self.status,
-            headers: self.headers.iter().cloned().collect(),
+            headers: self
+                .headers
+                .iter()
+                .filter(|(k, _)| !sensitive.contains(&k.to_ascii_lowercase().as_str()))
+                .cloned()
+                .collect(),
             body: String::from_utf8_lossy(&self.body).to_string(),
         }
     }

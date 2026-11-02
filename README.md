@@ -11,6 +11,7 @@ cb fetch <url> [--to md|html|text|json] [--max-tokens N] [--scope CSS]
                [--profile chrome|firefox|safari] [--fresh]
                [--replay FILE] [--record FILE] [--out FILE] [--json]
 cb history [--query Q] [--limit N]
+cb db prune|stats   # 按保留期清理 / 各表行数
 cb tools            # 能力表（CLI / MCP / agent 共用一份 schema）
 cb selftest         # 八项自检，机器可读
 cb mcp serve        # MCP stdio 服务端（--replay 可离线回放）
@@ -21,6 +22,7 @@ cb mcp serve        # MCP stdio 服务端（--replay 可离线回放）
 ```bash
 cb fetch https://example.com/a                      # 打印 markdown
 cb fetch https://example.com/a --json --max-tokens 800   # 机器可读 + 省 token
+cb fetch https://example.com/a --to text                 # 纯文本（去 markdown 标记）
 cb mcp serve                                       # 给 Hermes / 任意 MCP 客户端用
 ```
 
@@ -67,5 +69,6 @@ scripts/cb-e2e.ps1        # 端到端冒烟，给外部自动化用
 ## 安全与数据
 
 - 仓库内**不含任何密钥**。API key / cookie 只从环境变量或本地未跟踪文件读（`.env` 已忽略）。
-- 浏览历史、缓存、日志全部存在本机 sqlite；`cb db prune` 按保留期清理（缓存 7 天 / 历史 90 天 / 日志 14 天）。
-- 默认遵守 robots.txt（将来加 `--ignore-robots` 显式覆盖），每域限速 1 rps。
+- 浏览历史、缓存、日志全部存在本机 sqlite。`cb db prune` 按保留期清理（缓存按自身过期时间、历史 90 天、日志 14 天），`cb db stats` 看行数。
+- 日志目前写 stderr（`-v` 为 debug）；文件日志与轮转在 M2。
+- 已实现：TLS/HTTP2 指纹冒充、正文提取、缓存、退出码。**未实现（M2 计划）**：robots.txt 遵守、每域限速、challenge 升级、LLM 出账。别把没做的当承诺。

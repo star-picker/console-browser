@@ -12,6 +12,7 @@ cb-dom = { version = "0.1.0", path = "../cb-dom" }
 cb-extract = { version = "0.1.0", path = "../cb-extract" }
 cb-net = { version = "0.1.0", path = "../cb-net" }
 cb-store = { version = "0.1.0", path = "../cb-store" }
+encoding_rs = "0.8.44"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"

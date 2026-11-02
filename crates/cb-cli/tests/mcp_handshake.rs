@@ -105,3 +105,53 @@ fn unknown_tool_reports_error_without_killing_server() {
     let call = &responses[2];
     assert_eq!(call["result"]["isError"], true);
 }
+#[test]
+fn invalid_utf8_line_does_not_kill_the_server() {
+    use std::io::Write as _;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("page.cassette.json");
+    let exe = assert_cmd::cargo::cargo_bin("cb");
+    let mut child = Command::new(exe)
+        .arg("--db")
+        .arg(dir.path().join("cb.db"))
+        .arg("mcp")
+        .arg("serve")
+        .arg("--replay")
+        .arg(cassette)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn");
+
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        // 非 UTF-8 字节行，然后是正常的 initialize
+        stdin.write_all(b"\xff\xfe not utf8\n").expect("write junk");
+        writeln!(stdin, "{INIT}").expect("write init");
+        stdin.flush().expect("flush");
+    }
+    drop(child.stdin.take());
+
+    let out = BufReader::new(child.stdout.take().expect("stdout"));
+    let mut responses = Vec::new();
+    for line in out.lines() {
+        let line = line.expect("line");
+        if line.trim().is_empty() {
+            continue;
+        }
+        responses.push(serde_json::from_str::<serde_json::Value>(&line).expect("json"));
+    }
+    let status = child.wait().expect("wait");
+    assert!(
+        status.success(),
+        "server must exit clean on EOF, got {status:?}"
+    );
+    assert!(
+        responses
+            .iter()
+            .any(|r| r["id"] == 1 && r["result"]["serverInfo"]["name"] == "cb"),
+        "initialize must still be answered after a bad line: {responses:?}"
+    );
+}

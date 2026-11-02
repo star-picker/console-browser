@@ -134,6 +134,14 @@ pub struct PruneReport {
     pub logs_deleted: i64,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Counts {
+    pub pages: i64,
+    pub cache_entries: i64,
+    pub history: i64,
+    pub logs: i64,
+}
+
 pub struct Store {
     conn: Mutex<Connection>,
 }
@@ -357,9 +365,10 @@ impl Store {
 
     pub fn prune(&self, now: i64) -> Result<PruneReport> {
         let conn = self.lock();
+        // 缓存按自己的过期时间清，不再额外多留 7 天。
         let cache_deleted = conn.execute(
             "DELETE FROM cache_entries WHERE expires_at < ?1",
-            params![now - CACHE_RETENTION_SECS],
+            params![now],
         )? as i64;
         let history_deleted = conn.execute(
             "DELETE FROM history WHERE ts < ?1",
@@ -373,6 +382,21 @@ impl Store {
             cache_deleted,
             history_deleted,
             logs_deleted,
+        })
+    }
+
+    /// 各表行数，给 `cb db stats` 用。
+    pub fn counts(&self) -> Result<Counts> {
+        let conn = self.lock();
+        let count = |table: &str| -> Result<i64> {
+            let sql = format!("SELECT COUNT(*) FROM {table}");
+            Ok(conn.query_row(&sql, [], |r| r.get(0))?)
+        };
+        Ok(Counts {
+            pages: count("pages")?,
+            cache_entries: count("cache_entries")?,
+            history: count("history")?,
+            logs: count("logs")?,
         })
     }
 

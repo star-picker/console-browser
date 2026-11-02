@@ -327,6 +327,7 @@ dependencies = [
  "cb-extract",
  "cb-net",
  "cb-store",
+ "encoding_rs",
  "insta",
  "predicates",
  "serde",
