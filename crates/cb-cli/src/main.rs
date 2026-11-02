@@ -49,8 +49,12 @@ enum Cmd {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
-    /// 自检（M1 占位，T6 补全 8 项检查）
+    /// 自检：八项机器可读检查
     Selftest,
+    /// 列出能力表（CLI / MCP / agent 共用）
+    Tools,
+    /// MCP 服务端（给 agent 调用）
+    Mcp(commands::mcp::McpArgs),
 }
 
 fn default_db_path() -> PathBuf {
@@ -188,8 +192,54 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant) -> Result<i32, CbError> {
             }
             Ok(0)
         }
+        Cmd::Mcp(args) => {
+            match &args.cmd {
+                commands::mcp::McpCmd::Serve { replay } => {
+                    cb_mcp::serve_stdio(ctx, replay.clone())
+                        .await
+                        .map_err(|e| CbError::other(e.to_string()))?;
+                }
+            }
+            Ok(0)
+        }
         Cmd::Selftest => {
-            println!("selftest: not implemented yet (T6)");
+            let report = cb_core::run_selftest(ctx);
+            if cli.json {
+                let data =
+                    serde_json::to_value(&report).map_err(|e| CbError::other(e.to_string()))?;
+                let envelope = Envelope::ok(
+                    output::meta(
+                        started.elapsed().as_millis() as u64,
+                        false,
+                        ctx.profile.as_str(),
+                    ),
+                    data,
+                );
+                output::print_json(&envelope);
+            } else {
+                for check in &report.checks {
+                    println!("{:<6} {:<6} {}", check.status, check.name, check.detail);
+                }
+            }
+            Ok(if report.all_ok { 0 } else { 1 })
+        }
+        Cmd::Tools => {
+            let tools = cb_core::registry();
+            if cli.json {
+                let envelope = Envelope::ok(
+                    output::meta(
+                        started.elapsed().as_millis() as u64,
+                        false,
+                        ctx.profile.as_str(),
+                    ),
+                    serde_json::json!({ "tools": tools }),
+                );
+                output::print_json(&envelope);
+            } else {
+                for tool in tools {
+                    println!("{:<16} [{}] {}", tool.name, tool.kind, tool.summary);
+                }
+            }
             Ok(0)
         }
     }

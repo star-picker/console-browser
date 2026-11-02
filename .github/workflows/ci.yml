@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # BoringSSL (wreq) 在 MSVC 上需要 NASM
+      - name: Install NASM
+        run: choco install nasm -y --no-progress
+
+      - name: Install NASM into PATH
+        shell: pwsh
+        run: |
+          $nasm = Get-ChildItem 'C:\Program Files\NASM','C:\ProgramData\chocolatey\bin' -Filter nasm.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($nasm) { Add-Content $env:GITHUB_PATH (Split-Path $nasm.FullName) }
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fmt
+        run: cargo fmt --all --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # 全程离线：所有测试走 cassette / fixture，不碰真实网络
+      - name: test
+        run: cargo test --workspace

@@ -3,6 +3,8 @@
 pub mod envelope;
 pub mod error;
 pub mod fetch;
+pub mod selftest;
+pub mod tools;
 
 use cb_net::Profile;
 use cb_store::Store;
@@ -10,6 +12,8 @@ use cb_store::Store;
 pub use envelope::{Envelope, Meta, ENGINE};
 pub use error::CbError;
 pub use fetch::{fetch_page, FetchOpts, FetchOutcome, Format};
+pub use selftest::{run_selftest, SelftestReport};
+pub use tools::{registry, ToolSpec};
 
 /// 一次命令/一次工具调用的运行上下文。
 pub struct Ctx {
