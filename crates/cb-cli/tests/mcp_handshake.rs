@@ -155,3 +155,26 @@ fn invalid_utf8_line_does_not_kill_the_server() {
         "initialize must still be answered after a bad line: {responses:?}"
     );
 }
+
+#[test]
+fn search_web_tool_is_exposed_and_callable() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("gh.cassette.json");
+    let list = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
+    let call = r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_web","arguments":{"query":"ripgrep","engine":"gh","limit":5}}}"#;
+    let responses = run_session(&dir, &cassette, &[INIT, INITIALIZED, list, call]);
+    assert_eq!(
+        responses.len(),
+        3,
+        "responses: {}",
+        serde_json::to_string(&responses).unwrap_or_default()
+    );
+    let tools = responses[1]["result"]["tools"].as_array().expect("tools");
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(names.contains(&"search_web"), "got {names:?}");
+    assert_eq!(responses[2]["result"]["isError"], false);
+    let text = responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    assert!(text.contains("BurntSushi/ripgrep"), "got: {text}");
+}

@@ -72,6 +72,26 @@ async fn call_tool(ctx: &Ctx, replay: Option<&std::path::Path>, params: &Value) 
                 Err(err) => text_result(format!("{}: {}", err.body.code, err.body.message), true),
             }
         }
+        "search_web" => {
+            let Some(query) = args["query"].as_str().map(|s| s.to_string()) else {
+                return text_result("usage: query is required".to_string(), true);
+            };
+            let engine = args["engine"]
+                .as_str()
+                .and_then(cb_core::Engine::parse)
+                .unwrap_or(cb_core::Engine::DuckDuckGo);
+            let mut search_opts = cb_core::SearchOpts::new(engine, query);
+            search_opts.limit = args["limit"].as_u64().unwrap_or(10) as usize;
+            search_opts.replay = replay.map(|p| p.to_path_buf());
+            match cb_core::search(ctx, &search_opts).await {
+                Ok(results) => text_result(
+                    serde_json::to_string_pretty(&json!({ "results": results }))
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    false,
+                ),
+                Err(err) => text_result(format!("{}: {}", err.body.code, err.body.message), true),
+            }
+        }
         "history_search" => {
             let query = args["query"].as_str();
             let limit = args["limit"].as_u64().unwrap_or(20) as usize;

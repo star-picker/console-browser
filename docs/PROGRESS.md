@@ -64,6 +64,16 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M2 切片 2 · 搜索引擎适配 + search_web
+
+- 新模块 cb-core/src/search.rs：`Engine`（ddg / bing / gh / arxiv）+ 每引擎 URL 构造 + SERP 解析 + 历史记账。
+- DDG 的 `/l/?uddg=` 跳转链接会还原成真实地址（否则 AI 拿到的是一条追踪链）。
+- GitHub 走 REST(`/search/repositories`)，arXiv 走 Atom；两者都不是 HTML 抓取，省一次解析。
+- 接入三处：`cb search <q> --engine … --limit …`、MCP 工具 `search_web`、能力表（registry 现在 4 个工具）。
+- Ruling: 搜索不写 `pages` 表、只写历史 —— SERP 是「入口」不是「正文资产」，正文在结果链接里 —— 代价：`cb history` 能看到搜索但 `pages` 里没有 SERP 全文。
+- Ruling: 搜索本轮不接本地缓存 —— 上一次结果过期策略还没定（引擎侧时效性强）—— 代价：重复搜索会重复请求；M2 下一步接 cache_entries 时再定 TTL。
+- 证据：新增 9 个测试（cb-core 5 个解析单测 + CLI 4 个 e2e + MCP 1 个工具用例），`cargo test --workspace` 58 passed / 1 ignored；clippy 无告警。
+
 ### 迭代 · 双语 + 交互外壳 + 逐命令帮助 + 数据库文档
 
 - **交互模式**：`cb` 不带参数（或 `cb shell`，或双击 exe）= rustyline 外壳，prompt 里直接跑 `fetch/export/tools/selftest/db/mcp`，不再每次重开进程；历史落在 `shell_history.txt`；内置 `help` / `lang zh|en` / `clear` / `exit`；Ctrl-C 取消本行、Ctrl-D 退出。

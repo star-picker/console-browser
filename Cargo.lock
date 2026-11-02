@@ -332,6 +332,7 @@ dependencies = [
  "insta",
  "predicates",
  "regex",
+ "scraper",
  "serde",
  "serde_json",
  "sys-locale",

@@ -13,6 +13,7 @@ cb mcp serve
 | 工具 | 用途 |
 |---|---|
 | `browse_url` | 取网页 → 干净 markdown（可选 html/text/json、max_tokens、scope、fresh） |
+| `search_web` | 结构化搜索（ddg / bing / gh / arxiv），返标题+链接+摘要 |
 | `history_search` | 搜本机浏览历史（URL/标题） |
 | `selftest_status` | 八项自检，机器可读 |
 

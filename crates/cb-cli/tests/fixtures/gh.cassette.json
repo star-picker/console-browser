@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://api.github.com/search/repositories?q=ripgrep&per_page=5",
+      "final_url": "https://api.github.com/search/repositories?q=ripgrep&per_page=5",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=utf-8"
+      },
+      "body": "{\"items\":[{\"full_name\":\"BurntSushi/ripgrep\",\"html_url\":\"https://github.com/BurntSushi/ripgrep\",\"description\":\"regex search tool\",\"stargazers_count\":51000},{\"full_name\":\"ripgrep/ripgrep\",\"html_url\":\"https://github.com/ripgrep/ripgrep\",\"description\":\"mirror\",\"stargazers_count\":12}]}"
+    }
+  ]
+}

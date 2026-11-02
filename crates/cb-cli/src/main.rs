@@ -88,6 +88,12 @@ enum Cmd {
     /// MCP 服务端 · MCP server
     Mcp(commands::mcp::McpArgs),
 
+    /// 结构化搜索 · Structured web search (ddg / bing / gh / arxiv)
+    #[command(
+        after_help = "EXAMPLES / 例子:\n  cb search \"rust http client\" --engine ddg\n  cb search ripgrep --engine gh --limit 5 --json\n  cb search diffusion --engine arxiv"
+    )]
+    Search(commands::search::SearchArgs),
+
     /// 本地库维护 · Local database maintenance
     Db(commands::db::DbArgs),
 
@@ -458,6 +464,35 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     cb_mcp::serve_stdio(ctx, replay.clone())
                         .await
                         .map_err(|e| CbError::other(e.to_string()))?;
+                }
+            }
+            Ok(0)
+        }
+        Cmd::Search(args) => {
+            let engine = cb_core::Engine::parse(&args.engine).ok_or_else(|| {
+                CbError::usage(format!(
+                    "unknown engine: {} (ddg|bing|gh|arxiv)",
+                    args.engine
+                ))
+            })?;
+            let mut opts = cb_core::SearchOpts::new(engine, args.query.clone());
+            opts.limit = args.limit;
+            opts.replay = args.replay.clone();
+            opts.timeout_ms = args.timeout_ms;
+            let results = cb_core::search(ctx, &opts).await?;
+            let elapsed = started.elapsed().as_millis() as u64;
+            let meta = output::meta(elapsed, false, ctx.profile.as_str());
+            if cli.json {
+                let envelope = Envelope::ok(
+                    meta,
+                    serde_json::json!({ "engine": engine.as_str(), "query": args.query, "results": results }),
+                );
+                output::print_json(&envelope);
+            } else if results.is_empty() {
+                println!("no results");
+            } else {
+                for (i, r) in results.iter().enumerate() {
+                    println!("{}. {}\n   {}\n   {}", i + 1, r.title, r.url, r.snippet);
                 }
             }
             Ok(0)

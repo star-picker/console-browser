@@ -9,6 +9,7 @@ pub mod error;
 pub mod export;
 pub mod fetch;
 pub mod i18n;
+pub mod search;
 pub mod selftest;
 pub mod tools;
 
@@ -18,6 +19,7 @@ use cb_store::Store;
 pub use envelope::{Envelope, Meta, ENGINE};
 pub use error::CbError;
 pub use fetch::{fetch_page, FetchOpts, FetchOutcome, Format};
+pub use search::{search, Engine, SearchOpts, SearchResult};
 pub use selftest::{run_selftest, SelftestReport};
 pub use tools::{registry, ToolSpec};
 

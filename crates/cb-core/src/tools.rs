@@ -87,10 +87,48 @@ fn selftest_status() -> ToolSpec {
     }
 }
 
+fn search_web() -> ToolSpec {
+    ToolSpec {
+        name: "search_web",
+        summary: "结构化网页搜索（ddg / bing / gh / arxiv），返回标题、链接与摘要。\nStructured web search (ddg / bing / gh / arxiv) returning title, url and snippet.",
+        kind: "fetch",
+        input_schema: json!({
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "engine": {"type": "string", "enum": ["ddg", "bing", "gh", "arxiv"], "default": "ddg"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}
+            }
+        }),
+        output_schema: json!({
+            "type": "object",
+            "properties": {
+                "results": {"type": "array", "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "url": {"type": "string"},
+                        "snippet": {"type": "string"},
+                        "source": {"type": "string"}
+                    }
+                }}
+            }
+        }),
+    }
+}
+
 pub fn registry() -> &'static [ToolSpec] {
     static REGISTRY: OnceLock<Vec<ToolSpec>> = OnceLock::new();
     REGISTRY
-        .get_or_init(|| vec![browse_url(), history_search(), selftest_status()])
+        .get_or_init(|| {
+            vec![
+                browse_url(),
+                search_web(),
+                history_search(),
+                selftest_status(),
+            ]
+        })
         .as_slice()
 }
 

@@ -24,6 +24,7 @@ Pick with `--lang zh|en`, or `CB_LANG`, otherwise the system locale; the choice 
 cb fetch <url> [--to md|html|text|json] [--max-tokens N] [--scope CSS]
                [--profile chrome|firefox|safari] [--fresh]
                [--replay FILE] [--record FILE] [--out FILE] [--json]
+cb search <q> --engine ddg|bing|gh|arxiv [--limit N]   # 结构化搜索
 cb history [--query Q] [--limit N]
 cb db prune|stats|schema   # 清理 / 行数 / 表结构
 cb shell                    # 交互模式（不带参数运行等价）
@@ -38,6 +39,7 @@ cb mcp serve        # MCP stdio 服务端（--replay 可离线回放）
 cb fetch https://example.com/a                      # 打印 markdown
 cb fetch https://example.com/a --json --max-tokens 800   # 机器可读 + 省 token
 cb fetch https://example.com/a --to text                 # 纯文本（去 markdown 标记）
+cb search "rust http client" --engine ddg --json        # 结构化搜索结果
 cb mcp serve                                       # 给 Hermes / 任意 MCP 客户端用
 ```
 
