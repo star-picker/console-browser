@@ -435,6 +435,22 @@ pub fn decode_body(body: &[u8], headers: &[(String, String)]) -> String {
     }
     String::from_utf8_lossy(body).into_owned()
 }
+/// 指纹阶梯：先用用户选的，再试另外两个。
+fn challenge_ladder(preferred: cb_net::Profile) -> Vec<cb_net::Profile> {
+    let all = [
+        cb_net::Profile::Chrome,
+        cb_net::Profile::Firefox,
+        cb_net::Profile::Safari,
+    ];
+    let mut out = vec![preferred];
+    for profile in all {
+        if profile != preferred {
+            out.push(profile);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,19 +502,4 @@ mod tests {
             0
         );
     }
-}
-/// 指纹阶梯：先用用户选的，再试另外两个。
-fn challenge_ladder(preferred: cb_net::Profile) -> Vec<cb_net::Profile> {
-    let all = [
-        cb_net::Profile::Chrome,
-        cb_net::Profile::Firefox,
-        cb_net::Profile::Safari,
-    ];
-    let mut out = vec![preferred];
-    for profile in all {
-        if profile != preferred {
-            out.push(profile);
-        }
-    }
-    out
 }
