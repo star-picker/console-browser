@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/broken",
+      "final_url": "https://example.com/broken",
+      "status": 500,
+      "headers": {
+        "content-type": "text/html"
+      },
+      "body": "boom"
+    }
+  ]
+}

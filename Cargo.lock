@@ -299,6 +299,7 @@ name = "cb-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assert_cmd",
  "cb-core",
  "cb-extract",
  "cb-mcp",
@@ -306,8 +307,10 @@ dependencies = [
  "cb-store",
  "clap",
  "dirs",
+ "predicates",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -330,6 +333,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "tokio",
  "tracing",
  "url",
 ]

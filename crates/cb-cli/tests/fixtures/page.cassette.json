@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/a",
+      "final_url": "https://example.com/a",
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "max-age=600",
+        "etag": "\"v1\""
+      },
+      "body": "<html><head><title>Example Page</title></head><body><main><h1>Hello World</h1><p>This paragraph exists so the main-content scorer sees enough readable text to pick this container without extra noise from navigation or sidebars anywhere in the document.</p><pre><code class=\"language-rust\">fn main() {}</code></pre></main></body></html>"
+    }
+  ]
+}
