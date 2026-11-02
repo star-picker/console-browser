@@ -64,6 +64,16 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M2 切片 4 · 自主循环 + 反爬阶梯
+
+- **agent**（cb-core/src/agent.rs）：`cb agent run "<goal>"`。循环 = 提示词（目标 + 已走步骤 + 剩余步数）→ 模型出**一个** JSON 动作（search / fetch / answer）→ 执行 → 观察（按 `--observation-chars` 裁剪）→ 下一轮。护栏：`--max-steps`、`--budget`（本任务 completion token 上限）、模型没按格式回就把整段当答案（不把用户卡死在循环里）。
+- **反爬阶梯**（fetch 管道）：403 就换浏览器指纹重试，最多 3 轮（用户选的优先，然后另外两个）；每次尝试写 `challenge_events`（domain / kind / strategy / ok / detail）。`cb challenge stats` 按域名×策略汇总胜负，接上 schema v2。
+- 复用：agent 的 search/fetch 都走同一套 `SearchOpts` / `FetchOpts`，回放能力一并继承 —— 测试全程离线。
+- Ruling: agent 动作空间本轮只给 search/fetch/answer 三个 —— 没把握的「点击/填表」要等 M3 的会话与句柄 —— 代价：暂时不能做多步表单交互。
+- Ruling: 403 每次重试都记一条失败的 challenge 事件（而不是只记最后一轮）—— 这样「哪个指纹对该域有效」才有样本 —— 代价：表增长快一些，靠 `challenge_summary` 的时间窗收敛。
+- Ruling: `--budget` 按「本任务 completion token」计，不叠加 `ai_budget` 日预算；两者同时生效 —— 意图与额度分开管 —— 代价：用户要理解两个上限。
+- 证据：`cargo test --workspace` 全绿（新增 agent 5、challenge 1）；clippy 无告警；fmt 通过。
+
 ### M2 切片 3 · AI provider + 出账 + 预算闸
 
 - `cb-core/src/ai.rs`：`Provider`（deepseek / openai-compatible / ollama）、OpenAI 兼容 chat completions 调用、响应解析、**每次调用必出账**、按天预算闸。

@@ -99,10 +99,24 @@ sqlite3 "$env:LOCALAPPDATA\console-browser\cb.db" "select url, title from histor
 - **content_sha + markdown 双存**：二次读能只回差量，省 token；也方便以后做 FTS5 全文检索。
 - **凭证边界**：cassette 录制会剔除 `Set-Cookie` / `Authorization`；库里不存 API key（key 只从环境变量/配置文件读）。
 
-## 后续（M2/M3 计划表）
+### llm_calls — 模型调用账本 / model call ledger（v2）
+
+每次调用一行：`ts`、`day`（天序号）、`provider`、`model`、`purpose`（ask/agent/challenge…）、`prompt_tokens`、`completion_tokens`、`latency_ms`、`ok`、`error`。失败的调用也记，只是不计入用量。
+
+### ai_budget — 按天累计用量 / daily token usage（v2）
+
+`day` 主键 + `tokens_used`。`record_llm_call` 在同一事务里累加；`CB_AI_DAILY_BUDGET` 拍上限后，超了直接拒绝（退出码 9），不烧钱。
+
+### challenge_events — 挑战记录 / anti-bot events（v2）
+
+每次 403 尝试一行：`domain`、`kind`、`strategy`（如 `rotate-profile:firefox`）、`ok`、`detail`。`cb challenge stats` 按域名×策略汇总胜负。
+
+## 后续（M3 计划表）
 
 - `page_revisions`：同 URL 多次抓取的 diff 快照（差量读）。
-- `llm_calls` + `ai_budget`：每次模型调用出账，按天限额。
-- `challenge_events` + `site_strategy`：每次挑战结果与每域首选策略。
+- `site_strategy`：把 challenge_events 的学习结果物化成每域首选策略。
+- `sessions` / `session_events`：交互与 agent 会话回放。
+- `page_fts`（FTS5）：站点内/历史全文检索。
+- `plugins`：插件登记与启用状态。
 - `page_fts`（FTS5）：站点内/历史全文检索。
 - `plugins`：插件登记与启用状态。

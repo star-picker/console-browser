@@ -177,6 +177,14 @@ pub struct LlmCall {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChallengeSummary {
+    pub domain: String,
+    pub strategy: String,
+    pub wins: i64,
+    pub losses: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChallengeEvent {
     pub ts: i64,
     pub domain: String,
@@ -526,6 +534,31 @@ impl Store {
             ],
         )?;
         Ok(())
+    }
+
+    /// 挑战统计：按域名/策略汇总成功失败，给 `cb challenge stats` 用。
+    pub fn challenge_summary(&self, since: i64) -> Result<Vec<ChallengeSummary>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            r#"SELECT domain, strategy,
+                      SUM(CASE WHEN ok=1 THEN 1 ELSE 0 END) AS wins,
+                      SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) AS losses
+               FROM challenge_events WHERE ts >= ?1
+               GROUP BY domain, strategy ORDER BY losses DESC, wins DESC"#,
+        )?;
+        let rows = stmt.query_map(params![since], |r| {
+            Ok(ChallengeSummary {
+                domain: r.get(0)?,
+                strategy: r.get(1)?,
+                wins: r.get(2)?,
+                losses: r.get(3)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     /// 表结构摘要，给 `cb db schema` 用。

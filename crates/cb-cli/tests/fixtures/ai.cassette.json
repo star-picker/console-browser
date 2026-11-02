@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://ai.test/v1/chat/completions",
+      "final_url": "https://ai.test/v1/chat/completions",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"model\":\"test-model\",\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"action\\\":\\\"answer\\\",\\\"answer\\\":\\\"ripgrep 的作者是 Andrew Gallant。\\\"}\"}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12}}"
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 //! 不套 Box：多一次分配换更厚的错误信息，这里划算。
 #![allow(clippy::result_large_err)]
 
+pub mod agent;
 pub mod ai;
 pub mod envelope;
 pub mod error;
@@ -17,6 +18,7 @@ pub mod tools;
 use cb_net::Profile;
 use cb_store::Store;
 
+pub use agent::{run as run_agent, AgentOpts, AgentRun};
 pub use ai::{complete, AiConfig, Completion, Provider};
 pub use envelope::{Envelope, Meta, ENGINE};
 pub use error::CbError;

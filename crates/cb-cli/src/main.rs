@@ -97,6 +97,12 @@ enum Cmd {
     /// AI 配置 / 用量 / 提问 · AI config, usage ledger, one-shot ask
     Ai(commands::ai::AiArgs),
 
+    /// 自主循环 · Autonomous loop (model picks actions, browser executes)
+    Agent(commands::agent::AgentArgs),
+
+    /// 反爬挑战统计 · Anti-bot challenge stats
+    Challenge(commands::challenge::ChallengeArgs),
+
     /// 本地库维护 · Local database maintenance
     Db(commands::db::DbArgs),
 
@@ -609,6 +615,71 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                         completion.latency_ms,
                         completion.model
                     );
+                }
+                Ok(0)
+            }
+        },
+        Cmd::Agent(args) => match &args.cmd {
+            commands::agent::AgentCmd::Run {
+                goal,
+                max_steps,
+                budget,
+                observation_chars,
+                replay,
+            } => {
+                let mut opts = cb_core::AgentOpts::new(goal.clone());
+                opts.max_steps = *max_steps;
+                opts.max_tokens = *budget;
+                opts.observation_chars = *observation_chars;
+                opts.replay = replay.clone();
+                let run = cb_core::run_agent(ctx, &opts).await?;
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::to_value(&run).map_err(|e| CbError::other(e.to_string()))?,
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    println!("{}", run.answer);
+                    eprintln!(
+                        "-- {} steps · {} completion tokens",
+                        run.steps.len(),
+                        run.completion_tokens
+                    );
+                }
+                Ok(0)
+            }
+        },
+        Cmd::Challenge(args) => match &args.cmd {
+            commands::challenge::ChallengeCmd::Stats { days } => {
+                let since = cb_core::now_secs() - days * 86_400;
+                let rows = ctx
+                    .store
+                    .challenge_summary(since)
+                    .map_err(cb_core::error::store_err)?;
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "entries": rows }),
+                    );
+                    output::print_json(&envelope);
+                } else if rows.is_empty() {
+                    println!("no challenge events recorded");
+                } else {
+                    for row in rows {
+                        println!(
+                            "{:<28} {:<28} wins {} losses {}",
+                            row.domain, row.strategy, row.wins, row.losses
+                        );
+                    }
                 }
                 Ok(0)
             }

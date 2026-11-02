@@ -36,8 +36,8 @@
 
 - [x] 搜索引擎适配（ddg / bing / gh / arxiv）+ `cb search` + MCP `search_web`（9 测试）
 - [x] cb-ai：provider（deepseek / openai-compatible / ollama）+ ledger + 预算闸（`cb ai config/usage/ask`）
-- [ ] challenge 探测与策略阶梯（含 LLM 升级、sampling 回调）
-- [ ] agent 最小循环（快照 → 动作 → delta）
+- [x] challenge 探测与策略阶梯：403 → 换指纹重试（最多 3 轮）+ `challenge_events` 记账 + `cb challenge stats`（LLM/sampling 升级留 M3）
+- [x] agent 最小循环：`cb agent run`（模型出 JSON 动作 → 搜索/抓取 → 观察 → 答；步数/token 上限）
 - [x] `cb export --to html|md`（单文件 HTML：剥脚本/外链样式/内联事件，注入阅读样式；7 个测试）
 
 ## M3 JS 与会话

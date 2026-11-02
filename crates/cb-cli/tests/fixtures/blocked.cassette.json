@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://blocked.example/x",
+      "final_url": "https://blocked.example/x",
+      "status": 403,
+      "headers": {
+        "content-type": "text/html"
+      },
+      "body": "blocked"
+    }
+  ]
+}

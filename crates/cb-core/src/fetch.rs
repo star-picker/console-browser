@@ -147,35 +147,77 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
         }
     }
 
-    let client = match &opts.replay {
-        Some(path) => cb_net::NetClient::replay(path)?,
-        None => cb_net::NetClient::new(ctx.profile)?,
-    };
-    if let Some(path) = &opts.record {
-        client.start_recording();
-        tracing::debug!(path = %path.display(), "recording enabled");
-    }
+    let domain = url::Url::parse(&opts.url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .unwrap_or_else(|| "unknown".to_string());
 
-    let request = cb_net::Request::get(opts.url.clone());
-    let resp = match tokio::time::timeout(
-        std::time::Duration::from_millis(opts.timeout_ms),
-        client.get(&request),
-    )
-    .await
-    {
-        Err(_) => {
-            return Err(CbError::timeout(format!(
-                "no response within {}ms",
-                opts.timeout_ms
-            )))
+    // 反爬阶梯：403 就换一个浏览器指纹再试，最多三轮，全程留痕。
+    let mut resp = None;
+    let mut last_challenge: Option<CbError> = None;
+    for (attempt, profile) in challenge_ladder(ctx.profile).into_iter().enumerate() {
+        let client = match &opts.replay {
+            Some(path) => cb_net::NetClient::replay(path)?,
+            None => cb_net::NetClient::new(profile)?,
+        };
+        if attempt == 0 {
+            if let Some(path) = &opts.record {
+                client.start_recording();
+                tracing::debug!(path = %path.display(), "recording enabled");
+            }
         }
-        Ok(Err(e)) => return Err(e.into()),
-        Ok(Ok(r)) => r,
-    };
+        let request = cb_net::Request::get(opts.url.clone());
+        let attempt_resp = match tokio::time::timeout(
+            std::time::Duration::from_millis(opts.timeout_ms),
+            client.get(&request),
+        )
+        .await
+        {
+            Err(_) => {
+                return Err(CbError::timeout(format!(
+                    "no response within {}ms",
+                    opts.timeout_ms
+                )))
+            }
+            Ok(Err(e)) => return Err(e.into()),
+            Ok(Ok(r)) => r,
+        };
 
-    if let Some(path) = &opts.record {
-        client.save_recording(path)?;
+        let strategy = format!("rotate-profile:{}", profile.as_str());
+        if attempt_resp.status == 403 {
+            let _ = ctx.store.record_challenge(&cb_store::ChallengeEvent {
+                ts: ctx.now(),
+                domain: domain.clone(),
+                kind: "http-403".to_string(),
+                strategy,
+                ok: false,
+                detail: Some(format!("attempt {}", attempt + 1)),
+            });
+            last_challenge = Some(status_error(attempt_resp.status, &opts.url));
+            continue;
+        }
+
+        if attempt > 0 {
+            let _ = ctx.store.record_challenge(&cb_store::ChallengeEvent {
+                ts: ctx.now(),
+                domain: domain.clone(),
+                kind: "http-403".to_string(),
+                strategy,
+                ok: true,
+                detail: Some(format!("succeeded on attempt {}", attempt + 1)),
+            });
+        }
+        if let Some(path) = &opts.record {
+            client.save_recording(path)?;
+        }
+        resp = Some(attempt_resp);
+        break;
     }
+
+    let resp = match resp {
+        Some(r) => r,
+        None => return Err(last_challenge.unwrap_or_else(|| CbError::other("no attempt ran"))),
+    };
 
     let content_type = resp.header("content-type").unwrap_or("").to_string();
 
@@ -444,4 +486,19 @@ mod tests {
             0
         );
     }
+}
+/// 指纹阶梯：先用用户选的，再试另外两个。
+fn challenge_ladder(preferred: cb_net::Profile) -> Vec<cb_net::Profile> {
+    let all = [
+        cb_net::Profile::Chrome,
+        cb_net::Profile::Firefox,
+        cb_net::Profile::Safari,
+    ];
+    let mut out = vec![preferred];
+    for profile in all {
+        if profile != preferred {
+            out.push(profile);
+        }
+    }
+    out
 }
