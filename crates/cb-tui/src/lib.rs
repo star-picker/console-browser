@@ -4,13 +4,17 @@
 
 pub mod action;
 pub mod app;
+pub mod driver;
 pub mod editbuffer;
 pub mod keymap;
 pub mod mode;
 pub mod route;
+pub mod screen;
+pub mod views;
 
 pub use action::Action;
 pub use app::{App, Effect, LoadStatus, OverlayItem, PageView, Tab};
+pub use driver::{run as run_tui, DriverOpts};
 pub use editbuffer::EditBuffer;
 pub use keymap::key_to_action;
 pub use mode::{InputKind, Mode, OverlayKind};

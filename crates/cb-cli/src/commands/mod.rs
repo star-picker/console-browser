@@ -7,3 +7,4 @@ pub mod export;
 pub mod fetch;
 pub mod mcp;
 pub mod search;
+pub mod tui;

@@ -1082,3 +1082,258 @@ mod tests {
         assert!(app.find_prev());
     }
 }
+impl App {
+    /// 执行一个动作；需要 IO 时返回 Effect。
+    pub fn apply(&mut self, action: Action) -> Option<Effect> {
+        match action {
+            Action::FocusOmnibox => {
+                self.mode = Mode::Input(InputKind::Omnibox);
+                let url = self.tab().url().to_string();
+                self.omnibox.set_text(url);
+                None
+            }
+            Action::FocusFind => {
+                self.mode = Mode::Input(InputKind::Find);
+                self.omnibox.clear();
+                None
+            }
+            Action::FocusCommand => {
+                self.mode = Mode::Input(InputKind::Command);
+                self.omnibox.clear();
+                None
+            }
+            Action::PasteCookies => {
+                self.mode = Mode::Input(InputKind::PasteCookies);
+                self.omnibox.clear();
+                None
+            }
+            Action::Submit => self.submit_input(),
+            Action::CancelInput => {
+                self.mode = Mode::Browse;
+                let url = self.tab().url().to_string();
+                self.omnibox.set_text(url);
+                None
+            }
+            Action::ClearInput => {
+                self.omnibox.clear();
+                None
+            }
+            Action::EditBackspace => {
+                self.omnibox.backspace();
+                None
+            }
+            Action::EditWordBackspace => {
+                self.omnibox.delete_word();
+                None
+            }
+            Action::EditLeft => {
+                self.omnibox.left();
+                None
+            }
+            Action::EditRight => {
+                self.omnibox.right();
+                None
+            }
+            Action::EditHome => {
+                self.omnibox.home();
+                None
+            }
+            Action::EditEnd => {
+                self.omnibox.end();
+                None
+            }
+            Action::HistoryPrev => {
+                self.omnibox.history_prev();
+                None
+            }
+            Action::HistoryNext => {
+                self.omnibox.history_next();
+                None
+            }
+            Action::Open(url) => Some(self.navigate(&url)),
+            Action::Back => self.back(),
+            Action::Forward => self.forward(),
+            Action::Reload => {
+                self.status = "reload".to_string();
+                self.reload()
+            }
+            Action::Home => {
+                self.mode = Mode::Input(InputKind::Omnibox);
+                self.omnibox.clear();
+                None
+            }
+            Action::ScrollDown(n) => {
+                self.scroll_by(n.max(1));
+                None
+            }
+            Action::ScrollUp(n) => {
+                self.scroll_by(-n.max(1));
+                None
+            }
+            Action::PageDown => {
+                self.page_down();
+                None
+            }
+            Action::PageTop => {
+                self.scroll_top();
+                None
+            }
+            Action::PageBottom => {
+                self.scroll_bottom();
+                None
+            }
+            Action::FocusNextLink => {
+                self.focus_next_link();
+                None
+            }
+            Action::FocusPrevLink => {
+                self.focus_prev_link();
+                None
+            }
+            Action::OpenFocusedLink { new_tab } => self.open_focused_link(new_tab),
+            Action::ToggleRawView => {
+                self.raw_view = !self.raw_view;
+                self.markdown_view = false;
+                None
+            }
+            Action::ToggleMarkdownView => {
+                self.markdown_view = !self.markdown_view;
+                self.raw_view = false;
+                None
+            }
+            Action::FindNext => {
+                if !self.find_next() {
+                    self.status = "no find matches".to_string();
+                }
+                None
+            }
+            Action::FindPrev => {
+                if !self.find_prev() {
+                    self.status = "no find matches".to_string();
+                }
+                None
+            }
+            Action::TabNew => {
+                self.new_tab();
+                None
+            }
+            Action::TabClose => {
+                self.close_tab();
+                None
+            }
+            Action::TabNext => {
+                self.next_tab();
+                None
+            }
+            Action::TabPrev => {
+                if self.tabs.len() > 1 {
+                    let prev = if self.active == 0 {
+                        self.tabs.len() - 1
+                    } else {
+                        self.active - 1
+                    };
+                    self.select_tab(prev);
+                }
+                None
+            }
+            Action::TabSelect(idx) => {
+                self.select_tab(idx);
+                None
+            }
+            Action::ToggleHelp => {
+                self.open_overlay(OverlayKind::Help);
+                None
+            }
+            Action::ToggleHistory => {
+                self.open_overlay(OverlayKind::History);
+                None
+            }
+            Action::ToggleLinks => {
+                self.open_overlay(OverlayKind::Links);
+                None
+            }
+            Action::TogglePalette => {
+                self.open_overlay(OverlayKind::Palette);
+                None
+            }
+            Action::ToggleAi => {
+                self.open_overlay(OverlayKind::Ai);
+                None
+            }
+            Action::ToggleTrace => {
+                self.open_overlay(OverlayKind::Trace);
+                None
+            }
+            Action::OverlayUp => {
+                self.overlay_up();
+                None
+            }
+            Action::OverlayDown => {
+                self.overlay_down();
+                None
+            }
+            Action::OverlaySelect => {
+                if let Some(target) = self.overlay_select() {
+                    if target.starts_with("https://") || target.starts_with("http://") {
+                        return Some(self.navigate(&target));
+                    }
+                    self.status = format!("selected: {target}");
+                }
+                None
+            }
+            Action::OverlayFilter => {
+                self.mode = Mode::Input(InputKind::Find);
+                self.omnibox.clear();
+                None
+            }
+            Action::CloseOverlay => {
+                self.close_overlay();
+                None
+            }
+            Action::OpenHumanAssist => {
+                let url = self.tab().url().to_string();
+                if url.is_empty() {
+                    self.status = "nothing loaded".to_string();
+                    None
+                } else {
+                    Some(Effect::OpenAssist { url })
+                }
+            }
+            Action::ExportMarkdown => {
+                let url = self.tab().url().to_string();
+                Some(Effect::ExportMarkdown { url })
+            }
+            Action::ExportHtml => {
+                let url = self.tab().url().to_string();
+                Some(Effect::ExportHtml { url })
+            }
+            Action::CopyUrl => {
+                let url = self.tab().url().to_string();
+                Some(Effect::CopyUrl { url })
+            }
+            Action::SwitchLang => {
+                let next = cb_core::i18n::current().next();
+                cb_core::i18n::set(next);
+                self.status = format!("lang: {}", next.as_str());
+                None
+            }
+            Action::Quit => {
+                self.should_quit = true;
+                None
+            }
+            Action::ForceQuit => {
+                self.should_quit = true;
+                None
+            }
+            Action::MouseClick(_, _) => None,
+            Action::MouseScroll(up) => {
+                if up {
+                    self.scroll_by(-3);
+                } else {
+                    self.scroll_by(3);
+                }
+                None
+            }
+        }
+    }
+}

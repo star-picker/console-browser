@@ -64,6 +64,16 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M3-UI · T4-T6 落地：能跑起来的全屏浏览器
+
+- **T4 cb-render**：`Layout::new(doc, width)` → 折行行（CJK 用 unicode-width）、表格列对齐、代码不折行、引用前缀、链接 id→行号索引、`find(needle)` 返回命中行。8 测试。
+- **T5 cb-tui 纯逻辑**：`Mode`（Browse/Input/Overlay）、`Action`（40+ 动作）、`key_to_action`（键位表 + 唯一性/覆盖测试）、`EditBuffer`（光标/删词/历史召回）、`route::classify`（URL/域名/localhost/搜索/!bang/cb:）、`App`（标签栈、前进后退、加载代数丢弃过期结果、链接焦点环、查找循环、浮层、滚动钳制）。24 测试。
+- **T6 屏幕与视图**：`Screen` 进 alternate screen + raw mode + `Drop`/panic 恢复（这就是「fresh and clean」：只画这一屏、不留滚动垃圾）；`views::draw` 画地址栏/标签条/正文/状态栏/浮层；`driver::run` 事件循环 + 后台加载线程（独立 tokio runtime，主线程只管画，加载不冻界面）；加载结果按 gen 比对丢弃。
+- **CLI 接线**：`cb`（TTY）→ TUI；无 TTY → 原 REPL；`cb tui [--url/--no-mouse/--no-restore/--replay]`；`cb shell` 保留原 REPL。3 条 e2e（无 TTY 拒绝并退出 2、管道下仍是 REPL、help 列 tui/shell）。
+- Ruling: 布局快照测试改用「TestBackend 渲染成字符串 + 关键断言」而不是 insta 快照文件 —— 少一堆二进制快照，断言更直白 —— 代价：细粒度排版回归不如快照敏感。
+- Ruling: 本轮 `OpenAssist/export/palette/history` 先用状态栏提示占位，T10/T11 接实 —— 先把「打开就能浏览」跑通 —— 代价：几个键暂时是空操作。
+- 证据：`cargo test --workspace` 全绿（cb-render 8 + cb-tui 31 + CLI 新增 3）；TUI 三件套已可编译成 `cb tui`。
+
 ### M3-UI · T2/T3 落地
 
 - **登录墙识别**（cb-core/src/login.rs）：URL 路径、password 表单、2FA 关键词、验证码厂商标记（recaptcha/hcaptcha/turnstile/geetest/阿里 nc_/cloudflare/ddos-guard）、www-authenticate。输出 LoginWall{kind, provider, hints, evidence}，5 条单测。

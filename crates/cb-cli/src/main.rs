@@ -11,6 +11,7 @@ use cb_store::Store;
 use clap::{Parser, Subcommand};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -108,6 +109,12 @@ enum Cmd {
 
     /// 本地库维护 · Local database maintenance
     Db(commands::db::DbArgs),
+
+    /// 全屏浏览器界面 · Full-screen browser UI
+    #[command(
+        after_help = "EXAMPLES / 例子:\n  cb tui\n  cb tui --url example.com\n  cb tui --no-mouse"
+    )]
+    Tui(commands::tui::TuiArgs),
 
     /// 交互模式（不带参数运行也可）· Interactive shell (also what plain cb does)
     #[command(
@@ -214,10 +221,49 @@ fn main() {
     let ctx = Ctx::new(store, profile);
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
 
+    let is_tty = std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
     match cli.cmd {
-        None | Some(Cmd::Shell) => {
+        None => {
+            if is_tty {
+                let opts = cb_tui::DriverOpts {
+                    replay: None,
+                    mouse: true,
+                    start_url: None,
+                };
+                match cb_tui::run_tui(ctx, opts) {
+                    Ok(code) => std::process::exit(code),
+                    Err(e) => {
+                        eprintln!("cb: tui failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
             let code = run_shell(&runtime, &cli, &ctx);
             std::process::exit(code);
+        }
+        Some(Cmd::Shell) => {
+            let code = run_shell(&runtime, &cli, &ctx);
+            std::process::exit(code);
+        }
+        Some(Cmd::Tui(args)) => {
+            if !is_tty {
+                let err =
+                    CbError::usage("cb tui needs a terminal (use cb fetch / cb shell when piping)");
+                output::report_error(&err, cli.json, 0, ctx.profile.as_str());
+                std::process::exit(err.exit_code());
+            }
+            let opts = cb_tui::DriverOpts {
+                replay: args.replay.clone(),
+                mouse: !args.no_mouse,
+                start_url: args.url.clone(),
+            };
+            match cb_tui::run_tui(ctx, opts) {
+                Ok(code) => std::process::exit(code),
+                Err(e) => {
+                    eprintln!("cb: tui failed: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
         Some(ref cmd) => {
             let started = Instant::now();
@@ -875,7 +921,7 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             }
             Ok(if report.all_ok { 0 } else { 1 })
         }
-        Cmd::Shell => Ok(0),
+        Cmd::Shell | Cmd::Tui(_) => Ok(0),
     }
 }
 fn cookie_json(c: cb_net::cookies::Cookie) -> serde_json::Value {
