@@ -15,6 +15,7 @@ pub mod i18n;
 pub mod search;
 pub mod selftest;
 pub mod tools;
+pub mod version;
 
 use cb_net::Profile;
 use cb_store::Store;

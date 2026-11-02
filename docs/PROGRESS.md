@@ -64,6 +64,15 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M3-UI · T0/T1 落地（2026 迭代）
+
+- **版本号**改为 `xx.yy.zz.YYYYMMDD.<gitshort>`：`cb-core/build.rs` 从 git 取提交 hash 与提交日期（可用 `CB_BUILD_COMMIT`/`CB_BUILD_DATE` 覆盖；无 git 时日期用 UTC 回退），`cb-core::version::VERSION` 注入到 `cb --version`、信封 `meta.engine`、MCP `serverInfo`。形状有测试守着（5 段、日期 8 位、hash 非空）。
+- **结构化文档模型**（`cb-extract/src/{blocks,doc}.rs`）：`RenderDoc { title, blocks, links }` + `Block`（Heading/Paragraph/ListItem/Code/Quote/Table/Rule/Image/Notice）+ `Span`（Normal/Bold/Italic/Code + 链接 id）。链接 id 按出现顺序稳定，供 TUI 焦点与差量用。
+- 6 条新测试（链接 id 稳定、嵌套列表深度、代码语言与行、表格首行表头、行内样式成 span、Notice 可渲染）。
+- Ruling: TUI 走**独立 walker**（`to_document`），不改动现有 markdown 序列化 —— AI 主链路的 7 条 golden 零风险 —— 代价：一次 HTML 解析跑两遍（毫秒级），后续若要合并再以「两路输出等价」测试收口。
+- Ruling: `Block::Quote` 内含 `Vec<Block>`（而非扁平 span）—— 引用里可能有列表/代码 —— 代价：比计划里的 `Quote{spans}` 多一层结构。
+- 证据：`cargo test -p cb-extract` 6 + 7 全绿；版本形状测试 2 绿。
+
 ### M2 收尾 · 挑战升级最后一阶（模型兜底）
 
 - 新增 `cb-core/src/challenge.rs`：截取挑战页前 2000 字符，问模型「下一步该干什么」，回答截 400 字符拼进 `needs_user.hint`。

@@ -59,3 +59,20 @@
 ## M6 打磨
 
 - [ ] 历史/缓存 UI、导出增强、性能守门、文档补完
+## M3-UI 全屏 TUI（已批准计划，进行中）
+
+- [x] T0 依赖与骨架：cb-render / cb-tui / cb-assist + ratatui/crossterm/unicode-width/tokio-tungstenite
+- [x] 版本号 xx.yy.zz.YYYYMMDD.githash（build.rs 注入，含形状测试）
+- [x] T1 cb-extract 结构化 RenderDoc/Block/Span（markdown 链路原样未动，7 golden + 6 新测试全绿）
+- [ ] T2 cb-core：FetchOutcome.doc、login::detect_login_wall、needs_login
+- [ ] T3 cookie jar + store v3（tabs/bookmarks/cookies + SecretBox）
+- [ ] T4 cb-render 布局引擎
+- [ ] T5 cb-tui 状态机与键位
+- [ ] T6 全屏屏幕与视图（alternate screen + RAII）
+- [ ] T7 加载/错误页/需登录页
+- [ ] T8 链接焦点/查找/链接列表
+- [ ] T9 标签页与会话恢复
+- [ ] T10 浮层（帮助/历史/面板/命令行/AI/日志）
+- [ ] T11 人工接力（cb-assist + CDP + cb login/cookies）
+- [ ] T12 鼠标与打磨
+- [ ] T13 接线与文档

@@ -8,6 +8,9 @@ members = [
     "crates/cb-extract",
     "crates/cb-mcp",
     "crates/cb-cli",
+    "crates/cb-render",
+    "crates/cb-tui",
+    "crates/cb-assist",
 ]
 
 [workspace.package]

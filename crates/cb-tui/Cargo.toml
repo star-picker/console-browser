@@ -1,0 +1,22 @@
+[package]
+name = "cb-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+cb-core = { version = "0.1.0", path = "../cb-core" }
+cb-net = { version = "0.1.0", path = "../cb-net" }
+cb-render = { version = "0.1.0", path = "../cb-render" }
+cb-store = { version = "0.1.0", path = "../cb-store" }
+crossterm = "0.29.0"
+ratatui = "0.30.2"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tracing = "0.1.44"
+unicode-width = "0.2.3"
+
+[dev-dependencies]
+insta = "1.49.0"

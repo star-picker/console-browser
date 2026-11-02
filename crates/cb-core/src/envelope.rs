@@ -3,7 +3,15 @@
 use crate::error::CbError;
 use serde::{Deserialize, Serialize};
 
-pub const ENGINE: &str = concat!("cb/", env!("CARGO_PKG_VERSION"));
+/// 信封里报告的引擎串，含构建日期与提交 hash。
+pub const ENGINE: &str = concat!(
+    "cb/",
+    env!("CARGO_PKG_VERSION"),
+    ".",
+    env!("CB_BUILD_DATE"),
+    ".",
+    env!("CB_BUILD_COMMIT")
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Meta {

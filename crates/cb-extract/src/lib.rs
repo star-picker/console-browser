@@ -4,6 +4,12 @@ use cb_dom::Document;
 use scraper::{ElementRef, Selector};
 use serde::{Deserialize, Serialize};
 
+pub mod blocks;
+pub mod doc;
+
+pub use blocks::{Block, LinkRef, NoticeLevel, RenderDoc, Span, SpanStyle};
+pub use doc::{notice_doc, to_document};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Link {
     pub text: String,
