@@ -99,20 +99,58 @@ impl PageView {
         )
     }
 
-    pub fn needs_human(url: &str, width: u16, kind: &str, hints: &[String]) -> PageView {
-        let body = hints.join("\n");
+    /// 需要登录时：保留真实页面内容，在最前面贴一张提示条，而不是把整页换掉。
+    pub fn needs_human(
+        url: &str,
+        width: u16,
+        kind: &str,
+        hints: &[String],
+        doc: Option<RenderDoc>,
+        title: &str,
+    ) -> PageView {
         let status = LoadStatus::NeedsHuman {
             kind: kind.to_string(),
             hints: hints.to_vec(),
         };
-        PageView::synthetic(
-            width,
-            url,
-            status,
-            NoticeLevel::Warn,
-            "需要你 / Needs you",
-            &body,
-        )
+        let message = hints.join(" · ");
+        match doc {
+            Some(mut doc) => {
+                let mut blocks = Vec::with_capacity(doc.blocks.len() + 1);
+                blocks.push(cb_extract::Block::Notice {
+                    level: NoticeLevel::Warn,
+                    title: "需要登录 / login required".to_string(),
+                    spans: vec![cb_extract::Span::normal(message)],
+                });
+                blocks.extend(doc.blocks);
+                doc.blocks = blocks;
+                let layout = Layout::new(&doc, width);
+                let resolved_title = if title.trim().is_empty() {
+                    url.to_string()
+                } else {
+                    title.to_string()
+                };
+                PageView {
+                    url: url.to_string(),
+                    final_url: url.to_string(),
+                    title: resolved_title,
+                    status,
+                    cached: false,
+                    tokens: 0,
+                    raw: String::new(),
+                    markdown: String::new(),
+                    doc: Some(doc),
+                    layout,
+                }
+            }
+            None => PageView::synthetic(
+                width,
+                url,
+                status,
+                NoticeLevel::Warn,
+                "需要登录 / login required",
+                &message,
+            ),
+        }
     }
 
     pub fn relayout(&mut self, width: u16) {
@@ -551,6 +589,7 @@ impl App {
         self.mode = Mode::Browse;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn on_needs_human(
         &mut self,
         tab_idx: usize,
@@ -558,6 +597,8 @@ impl App {
         url: &str,
         kind: &str,
         hints: &[String],
+        doc: Option<RenderDoc>,
+        title: &str,
     ) {
         let width = self.width;
         let Some(tab) = self.tabs.get_mut(tab_idx) else {
@@ -566,7 +607,10 @@ impl App {
         if tab.gen != gen {
             return;
         }
-        tab.page = Some(PageView::needs_human(url, width, kind, hints));
+        tab.page = Some(PageView::needs_human(url, width, kind, hints, doc, title));
+        if let Some(entry) = tab.entries.get_mut(tab.cursor) {
+            entry.title = title.to_string();
+        }
         tab.scroll = 0;
         self.mode = Mode::Browse;
     }
@@ -1558,8 +1602,10 @@ mod tests {
             0,
             gen,
             "https://a.example/login",
-            "captcha",
+            "login",
             &["press e".to_string()],
+            None,
+            "Sign in",
         );
         let page = app.tab().page.as_ref().expect("page");
         assert!(matches!(page.status, LoadStatus::NeedsHuman { .. }));

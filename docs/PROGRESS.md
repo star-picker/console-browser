@@ -64,6 +64,18 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### 实机反馈修复 · 只对真登录介入人工 + CI 门禁
+
+- **误判修复**：之前把「页面里有验证码标记」直接当登录墙，导致 baidu 这类页一跳就弹「需要你」。现在：
+  - 只有**真登录**（password 表单 + 登录路径 / 401 www-authenticate / 2FA）才触发人工接力；
+  - 验证码只做诊断（`detect_captcha`），不再打断浏览；
+  - 扫描前先剥掉 `<script>/<style>`，脚本里的 `nc_`/`grecaptcha` 不再算证据。
+  （login 模块 7 测试，含「脚本噪声不触发」「验证码单独不算登录墙」两条新回归。）
+- **登录页体验**：真登录墙时不再把整页换成提示页，而是**保留真实页面内容**，顶部贴一条「需要登录 / login required」通知条；tab 标题用页面真实标题。
+- **CI 门禁**：本地按 CI 三条硬门禁逐条验证 —— `cargo fmt --all --check` 通过、`cargo clippy --workspace --all-targets -- -D warnings` 零告警、`cargo test --workspace` **166 passed**；另加一条 CI 冒烟步骤 `cargo run -q -p cb-cli -- --db ci.db --json selftest`，防止「测试绿但二进制起不来」。
+- 顺带修掉一处真实笔误：`mouse: !args.no_mouse && !args.no_mouse`。
+- 待办（用户要求，下一轮）：语言开关改成**单语言整体切换**（TUI 文案 + CLI 帮助都只显示所选语言，不再中英拼接）。
+
 ### M3-UI · 收尾：DPAPI、clippy 归零、目标达成
 
 - **cookie 加密**：`SecretBox` 增 `DpapiBox`（Windows，`CryptProtectData/CryptUnprotectData` + `CRYPTPROTECT_UI_FORBIDDEN`），`default_secret_box()` 在 Windows 自动用它，其它平台退回 `PlainBox`；失败时回落明文标记，不丢数据。2 条测试（DPAPI roundtrip 且密文不含明文、能读旧的 plain 标记数据）。

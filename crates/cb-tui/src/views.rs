@@ -480,13 +480,18 @@ mod tests {
             0,
             gen,
             "https://a/login",
-            "captcha",
+            "login",
             &["press e to open the human assist window".to_string()],
+            None,
+            "Sign in",
         );
         let screen = render(&app);
-        assert!(screen.contains("Needs you"), "{screen}");
+        assert!(
+            screen.contains("login required") || screen.contains("Needs you"),
+            "{screen}"
+        );
         assert!(screen.contains("press e"), "{screen}");
-        assert!(screen.contains("needs:captcha"), "{screen}");
+        assert!(screen.contains("needs:login"), "{screen}");
     }
 
     #[test]

@@ -80,6 +80,8 @@ enum UiEvent {
         url: String,
         kind: String,
         hints: Vec<String>,
+        doc: Option<cb_extract::RenderDoc>,
+        title: String,
     },
     Failed {
         tab: usize,
@@ -294,8 +296,10 @@ fn apply_event(app: &mut App, ev: UiEvent) {
             url,
             kind,
             hints,
+            doc,
+            title,
         } => {
-            app.on_needs_human(tab, gen, &url, &kind, &hints);
+            app.on_needs_human(tab, gen, &url, &kind, &hints, doc, &title);
         }
         UiEvent::Failed {
             tab,
@@ -335,12 +339,16 @@ fn handle_req(
             match runtime.block_on(cb_core::fetch_page(ctx, &opts)) {
                 Ok(outcome) => {
                     if let Some(wall) = &outcome.login {
+                        // 真登录墙：内容照常渲染，顶部贴提示条；只有这时才提示按 e 找人。
+                        let doc = outcome.doc.clone();
                         let _ = tx.send(UiEvent::NeedsHuman {
                             tab,
                             gen,
                             url: outcome.final_url.clone(),
                             kind: wall.kind.as_str().to_string(),
                             hints: wall.hints.clone(),
+                            doc,
+                            title: outcome.title.clone(),
                         });
                         return;
                     }

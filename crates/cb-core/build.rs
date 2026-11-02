@@ -33,7 +33,10 @@ fn main() {
         });
     println!("cargo:rustc-env=CB_BUILD_COMMIT={hash}");
     println!("cargo:rustc-env=CB_BUILD_DATE={date}");
+    // 任何提交都会改 refs，所以盯 .git 目录本身，避免版本号停在旧提交。
     println!("cargo:rerun-if-changed=../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../.git/refs/heads/main");
+    println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=CB_BUILD_COMMIT");
     println!("cargo:rerun-if-env-changed=CB_BUILD_DATE");
 }

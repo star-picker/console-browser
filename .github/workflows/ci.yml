@@ -35,3 +35,7 @@ jobs:
       # 全程离线：所有测试走 cassette / fixture，不碰真实网络
       - name: test
         run: cargo test --workspace
+
+      # 二进制冒烟：确认 CLI 能起来、八项自检通过
+      - name: selftest
+        run: cargo run -q -p cb-cli -- --db ci.db --json selftest
