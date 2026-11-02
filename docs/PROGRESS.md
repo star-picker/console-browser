@@ -64,6 +64,16 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M3-UI · T2/T3 落地
+
+- **登录墙识别**（cb-core/src/login.rs）：URL 路径、password 表单、2FA 关键词、验证码厂商标记（recaptcha/hcaptcha/turnstile/geetest/阿里 nc_/cloudflare/ddos-guard）、www-authenticate。输出 LoginWall{kind, provider, hints, evidence}，5 条单测。
+- `FetchOutcome` 增 `doc`（结构化，`#[serde(skip)]` 不进 JSON）与 `login`；CLI/MCP 调用方可以「当页可读」但知道要人。clap 侧新增 `CbError::needs_login`（退出码 8）。
+- **cookie jar**（cb-net/src/cookies.rs）：Cookie 结构 + CookieStore 接口 + 内存实现 + 解析 Set-Cookie（Domain/Path/Max-Age/Secure/HttpOnly/SameSite）+ 域后缀/路径匹配 + 过期与 secure 过滤，6 条单测。
+- **持久化**（cb-store）：schema v3 增 `cookies`/`tabs`/`bookmarks`；Store 改为 `Arc<Mutex<Connection>>` 以支持共享给 jar；`StoreCookieJar` 实现接口，值经 `SecretBox` 封装；域查询按主机后缀展开（a.b.c 匹配 b.c 与 c）。
+- **接线**：`Ctx.cookies` 注入 `NetClient`（请求带 Cookie、响应落库），登录墙判断可用「jar 里已有会话 cookie」给出更准提示。`cb cookies list|clear`（只报名字，绝不打印值）。
+- Ruling: `SecretBox` 先给 `PlainBox`（本机 sqlite 明文 + 标记），DPAPI 实现排到 T12 —— 接口已固定，换实现不改调用方 —— 代价：当前版本 cookie 落盘是明文，文档与 `cb cookies list` 必须明说。
+- 证据：cookies 6 单测 + store 4 单测 + 2 条 CLI e2e + 1 条「jar 有会话但页面仍要登录」的提示测试；全仓测试绿。
+
 ### M3-UI · T0/T1 落地（2026 迭代）
 
 - **版本号**改为 `xx.yy.zz.YYYYMMDD.<gitshort>`：`cb-core/build.rs` 从 git 取提交 hash 与提交日期（可用 `CB_BUILD_COMMIT`/`CB_BUILD_DATE` 覆盖；无 git 时日期用 UTC 回退），`cb-core::version::VERSION` 注入到 `cb --version`、信封 `meta.engine`、MCP `serverInfo`。形状有测试守着（5 段、日期 8 位、hash 非空）。

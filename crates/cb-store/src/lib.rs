@@ -6,7 +6,13 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
 
-pub const SCHEMA_VERSION: i32 = 2;
+pub mod jar;
+pub mod secrets;
+
+pub use jar::StoreCookieJar;
+pub use secrets::{default_secret_box, PlainBox, SecretBox};
+
+pub const SCHEMA_VERSION: i32 = 3;
 
 /// 缓存保留 7 天，历史 90 天，日志 14 天。
 pub const CACHE_RETENTION_SECS: i64 = 7 * 86_400;
@@ -97,6 +103,32 @@ CREATE TABLE IF NOT EXISTS challenge_events(
   detail TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_challenge_domain ON challenge_events(domain);
+CREATE TABLE IF NOT EXISTS cookies(
+  domain TEXT NOT NULL,
+  name TEXT NOT NULL,
+  path TEXT NOT NULL,
+  value BLOB NOT NULL,
+  expires_at INTEGER,
+  secure INTEGER NOT NULL,
+  http_only INTEGER NOT NULL,
+  same_site TEXT,
+  host_only INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(domain,name,path)
+);
+CREATE TABLE IF NOT EXISTS tabs(
+  slot INTEGER PRIMARY KEY,
+  url TEXT,
+  title TEXT,
+  scroll INTEGER NOT NULL,
+  nav_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bookmarks(
+  url TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +209,20 @@ pub struct LlmCall {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredCookie {
+    pub domain: String,
+    pub name: String,
+    pub path: String,
+    /// 密文（由 SecretBox 加密后写入）。
+    pub value: Vec<u8>,
+    pub expires_at: Option<i64>,
+    pub secure: bool,
+    pub http_only: bool,
+    pub same_site: Option<String>,
+    pub host_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChallengeSummary {
     pub domain: String,
     pub strategy: String,
@@ -209,8 +255,9 @@ pub struct Counts {
     pub logs: i64,
 }
 
+#[derive(Clone)]
 pub struct Store {
-    conn: Mutex<Connection>,
+    conn: std::sync::Arc<Mutex<Connection>>,
 }
 
 fn prepare(conn: &Connection) -> Result<()> {
@@ -237,7 +284,7 @@ impl Store {
         let conn = Connection::open(path).with_context(|| format!("open db {:?}", path))?;
         prepare(&conn)?;
         Ok(Store {
-            conn: Mutex::new(conn),
+            conn: std::sync::Arc::new(Mutex::new(conn)),
         })
     }
 
@@ -245,7 +292,7 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         prepare(&conn)?;
         Ok(Store {
-            conn: Mutex::new(conn),
+            conn: std::sync::Arc::new(Mutex::new(conn)),
         })
     }
 
@@ -452,6 +499,91 @@ impl Store {
         })
     }
 
+    /// 读某主机可见的 cookie 行（按主机后缀展开：a.b.c 会匹配 b.c 与 c 的 cookie）。
+    pub fn load_cookie_rows(&self, host: &str) -> Result<Vec<StoredCookie>> {
+        let conn = self.lock();
+        let candidates = host_suffixes(host);
+        let placeholders = vec!["?"; candidates.len()].join(",");
+        let sql = format!(
+            r#"SELECT domain,name,path,value,expires_at,secure,http_only,same_site,host_only
+               FROM cookies WHERE domain IN ({placeholders})"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(candidates.iter()), |r| {
+            Ok(StoredCookie {
+                domain: r.get(0)?,
+                name: r.get(1)?,
+                path: r.get(2)?,
+                value: r.get(3)?,
+                expires_at: r.get(4)?,
+                secure: r.get::<_, i64>(5)? != 0,
+                http_only: r.get::<_, i64>(6)? != 0,
+                same_site: r.get(7)?,
+                host_only: r.get::<_, i64>(8)? != 0,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn save_cookie_rows(&self, rows: &[StoredCookie]) -> Result<()> {
+        let conn = self.lock();
+        let now = crate::now_secs();
+        for row in rows {
+            conn.execute(
+                r#"INSERT INTO cookies
+                   (domain,name,path,value,expires_at,secure,http_only,same_site,host_only,updated_at)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+                   ON CONFLICT(domain,name,path) DO UPDATE SET
+                     value=excluded.value, expires_at=excluded.expires_at, secure=excluded.secure,
+                     http_only=excluded.http_only, same_site=excluded.same_site,
+                     host_only=excluded.host_only, updated_at=excluded.updated_at"#,
+                params![
+                    row.domain.to_ascii_lowercase(),
+                    row.name,
+                    row.path,
+                    row.value,
+                    row.expires_at,
+                    row.secure as i64,
+                    row.http_only as i64,
+                    row.same_site,
+                    row.host_only as i64,
+                    now
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// 库里出现过 cookie 的域名（去重）。
+    pub fn cookie_domains(&self) -> Result<Vec<String>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare("SELECT DISTINCT domain FROM cookies ORDER BY domain")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn clear_cookie_rows(&self, domain: Option<&str>) -> Result<i64> {
+        let conn = self.lock();
+        let removed = match domain {
+            Some(d) => {
+                let candidates = host_suffixes(d);
+                let placeholders = vec!["?"; candidates.len()].join(",");
+                let sql = format!("DELETE FROM cookies WHERE domain IN ({placeholders})");
+                conn.execute(&sql, rusqlite::params_from_iter(candidates.iter()))?
+            }
+            None => conn.execute("DELETE FROM cookies", [])?,
+        };
+        Ok(removed as i64)
+    }
+
     /// 记一次模型调用（每次都必须记）。
     pub fn record_llm_call(&self, call: &LlmCall) -> Result<i64> {
         let conn = self.lock();
@@ -631,6 +763,27 @@ impl Store {
         )?;
         Ok(())
     }
+}
+
+/// 主机 → 所有可能的 cookie 域（a.b.c, b.c, c）。
+fn host_suffixes(host: &str) -> Vec<String> {
+    let host = host.to_ascii_lowercase();
+    let mut out = Vec::new();
+    let parts: Vec<&str> = host.split('.').filter(|p| !p.is_empty()).collect();
+    for i in 0..parts.len() {
+        out.push(parts[i..].join("."));
+    }
+    if out.is_empty() {
+        out.push(host);
+    }
+    out
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 pub fn hash_url(url: &str) -> String {

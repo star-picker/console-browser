@@ -35,11 +35,18 @@ pub use tools::{registry, ToolSpec};
 pub struct Ctx {
     pub store: Store,
     pub profile: Profile,
+    /// cookie jar：登录态复用（sqlite 后端）。
+    pub cookies: std::sync::Arc<dyn cb_net::cookies::CookieStore>,
 }
 
 impl Ctx {
     pub fn new(store: Store, profile: Profile) -> Ctx {
-        Ctx { store, profile }
+        let jar = cb_store::StoreCookieJar::new(store.clone(), cb_store::default_secret_box());
+        Ctx {
+            store,
+            profile,
+            cookies: std::sync::Arc::new(jar),
+        }
     }
 
     /// 当前 Unix 秒。测试可用 `ctx.now` 的固定时钟覆盖（见 `with_now`）。

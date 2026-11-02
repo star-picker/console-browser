@@ -124,6 +124,15 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
     }
     let now = ctx.now();
     let key = cb_net::cache_key("GET", &opts.url, ctx.profile, !opts.no_js);
+    let probe_host = url::Url::parse(&opts.url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .unwrap_or_default();
+    let jar_has_session = ctx
+        .cookies
+        .load(&probe_host)
+        .into_iter()
+        .any(|c| !c.is_expired(crate::now_secs()) && c.looks_like_session());
 
     if !opts.fresh {
         if let Some(entry) = ctx.store.cache_get(&key).map_err(crate::error::store_err)? {
@@ -150,6 +159,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
                     html,
                     true,
                     Some(age),
+                    jar_has_session,
                 );
             }
         }
@@ -167,7 +177,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
     for (attempt, profile) in challenge_ladder(ctx.profile).into_iter().enumerate() {
         let client = match &opts.replay {
             Some(path) => cb_net::NetClient::replay(path)?,
-            None => cb_net::NetClient::new(profile)?,
+            None => cb_net::NetClient::new(profile)?.with_cookie_store(ctx.cookies.clone()),
         };
         if attempt == 0 {
             if let Some(path) = &opts.record {
@@ -287,6 +297,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
         body_text.clone(),
         false,
         None,
+        jar_has_session,
     )?;
 
     let ttl = cache_ttl_secs(&resp.headers);
@@ -333,6 +344,7 @@ fn build_outcome(
     html: String,
     cached: bool,
     cache_age_s: Option<i64>,
+    jar_has_session: bool,
 ) -> Result<FetchOutcome, CbError> {
     let doc = cb_dom::Document::parse(&html);
     let title = doc.title().unwrap_or_default();
@@ -394,8 +406,7 @@ fn build_outcome(
     })?;
 
     let render_doc = cb_extract::to_document(&html, &extract_opts).ok();
-    let has_session_cookie = false;
-    let login = crate::login::detect_login_wall(final_url, headers, &html, has_session_cookie);
+    let login = crate::login::detect_login_wall(final_url, headers, &html, jar_has_session);
 
     Ok(FetchOutcome {
         doc: render_doc,
@@ -549,6 +560,57 @@ mod tests {
         assert_eq!(
             cache_ttl_secs(&[("cache-control".to_string(), "no-store".to_string())]),
             0
+        );
+    }
+    #[tokio::test]
+    async fn login_wall_reports_expired_session_when_jar_has_cookies() {
+        use cb_net::cookies::Cookie;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cassette = dir.path().join("login.cassette.json");
+        let html = "<html><head><title>Sign in</title></head><body><main><h1>Sign in</h1><form><input type=\"password\"></form><p>Sign in to continue to your account dashboard and settings page please now.</p></main></body></html>";
+        let payload = serde_json::json!({
+            "version": 1,
+            "entries": [{
+                "url": "https://site.example/login",
+                "final_url": "https://site.example/login",
+                "status": 200,
+                "headers": {"content-type": "text/html; charset=utf-8"},
+                "body": html,
+            }]
+        });
+        std::fs::write(
+            &cassette,
+            serde_json::to_string_pretty(&payload).expect("json"),
+        )
+        .expect("write");
+
+        let store = cb_store::Store::open_in_memory().expect("store");
+        let ctx = crate::Ctx::new(store, cb_net::Profile::Chrome);
+        ctx.cookies.save(&[Cookie {
+            domain: "site.example".to_string(),
+            name: "sessionid".to_string(),
+            path: "/".to_string(),
+            value: "abc".to_string(),
+            expires_at: None,
+            secure: false,
+            http_only: true,
+            same_site: None,
+            host_only: true,
+        }]);
+
+        let opts = FetchOpts {
+            url: "https://site.example/login".to_string(),
+            replay: Some(cassette),
+            ..Default::default()
+        };
+        let outcome = fetch_page(&ctx, &opts).await.expect("fetch");
+        let wall = outcome.login.expect("login wall");
+        assert!(
+            wall.hints
+                .iter()
+                .any(|h| h.contains("expired") || h.contains("refresh")),
+            "hints: {:?}",
+            wall.hints
         );
     }
 }

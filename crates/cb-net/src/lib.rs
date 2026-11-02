@@ -1,6 +1,8 @@
 //! cb-net: HTTP client with browser TLS/HTTP2 fingerprint impersonation
 //! (via `wreq` + `wreq_util` presets), plus a record/replay backend for offline tests.
 
+pub mod cookies;
+
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -195,6 +197,8 @@ enum Backend {
 
 pub struct NetClient {
     backend: Backend,
+    /// 可选 cookie jar：发请求时带上、收响应时落库。
+    cookie_store: Option<std::sync::Arc<dyn cookies::CookieStore>>,
     /// 录制模式下累计的响应，供 `--record` 落盘。
     record: std::sync::Mutex<Option<Cassette>>,
 }
@@ -207,6 +211,7 @@ impl NetClient {
             .map_err(|e| NetError::Network(format!("build client: {e}")))?;
         Ok(NetClient {
             backend: Backend::Live { client, profile },
+            cookie_store: None,
             record: std::sync::Mutex::new(None),
         })
     }
@@ -214,8 +219,72 @@ impl NetClient {
     pub fn replay(path: impl AsRef<Path>) -> Result<NetClient, NetError> {
         Ok(NetClient {
             backend: Backend::Replay(Cassette::load(path)?),
+            cookie_store: None,
             record: std::sync::Mutex::new(None),
         })
+    }
+
+    /// 挂上 cookie jar（登录态复用）。返回 self，便于链式构造。
+    pub fn with_cookie_store(
+        mut self,
+        store: std::sync::Arc<dyn cookies::CookieStore>,
+    ) -> NetClient {
+        self.cookie_store = Some(store);
+        self
+    }
+
+    /// 目标 URL 是否已有看起来像会话的 cookie。
+    pub fn has_session_cookie(&self, url: &str) -> bool {
+        let Some(store) = &self.cookie_store else {
+            return false;
+        };
+        let Ok(parsed) = url::Url::parse(url) else {
+            return false;
+        };
+        let Some(host) = parsed.host_str() else {
+            return false;
+        };
+        let now = now_secs();
+        store.load(host).into_iter().any(|c| {
+            !c.is_expired(now) && c.looks_like_session() && cookies::domain_matches(&c.domain, host)
+        })
+    }
+
+    fn cookie_header_for(&self, url: &str) -> Option<String> {
+        let store = self.cookie_store.as_ref()?;
+        let parsed = url::Url::parse(url).ok()?;
+        let host = parsed.host_str()?.to_ascii_lowercase();
+        let path = if parsed.path().is_empty() {
+            "/"
+        } else {
+            parsed.path()
+        };
+        let https = parsed.scheme() == "https";
+        let cookies = store.load(&host);
+        cookies::header_value(&cookies, &host, path, https, now_secs())
+    }
+
+    fn store_response_cookies(&self, url: &str, headers: &[(String, String)]) {
+        let Some(store) = self.cookie_store.as_ref() else {
+            return;
+        };
+        let Ok(parsed) = url::Url::parse(url) else {
+            return;
+        };
+        let Some(host) = parsed.host_str() else {
+            return;
+        };
+        let mut parsed_cookies = Vec::new();
+        for (k, v) in headers {
+            if k.eq_ignore_ascii_case("set-cookie") {
+                if let Some(cookie) = cookies::parse_set_cookie(v, host, now_secs()) {
+                    parsed_cookies.push(cookie);
+                }
+            }
+        }
+        if !parsed_cookies.is_empty() {
+            store.save(&parsed_cookies);
+        }
     }
 
     pub fn profile(&self) -> Option<Profile> {
@@ -271,6 +340,15 @@ impl NetClient {
                 for (k, v) in &req.headers {
                     builder = builder.header(k.as_str(), v.as_str());
                 }
+                let explicit_cookie = req
+                    .headers
+                    .iter()
+                    .any(|(k, _)| k.eq_ignore_ascii_case("cookie"));
+                if !explicit_cookie {
+                    if let Some(header) = self.cookie_header_for(&req.url) {
+                        builder = builder.header("cookie", header);
+                    }
+                }
                 let resp = builder.send().await?;
                 let status = resp.status().as_u16();
                 let final_url = resp.url().as_str().to_string();
@@ -303,6 +381,13 @@ impl NetClient {
             }
         }
     }
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// 归一化 URL：小写 scheme/host，去掉 fragment 与默认端口。

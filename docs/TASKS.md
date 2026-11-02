@@ -64,8 +64,8 @@
 - [x] T0 依赖与骨架：cb-render / cb-tui / cb-assist + ratatui/crossterm/unicode-width/tokio-tungstenite
 - [x] 版本号 xx.yy.zz.YYYYMMDD.githash（build.rs 注入，含形状测试）
 - [x] T1 cb-extract 结构化 RenderDoc/Block/Span（markdown 链路原样未动，7 golden + 6 新测试全绿）
-- [ ] T2 cb-core：FetchOutcome.doc、login::detect_login_wall、needs_login
-- [ ] T3 cookie jar + store v3（tabs/bookmarks/cookies + SecretBox）
+- [x] T2 cb-core：FetchOutcome.doc、login::detect_login_wall、needs_login（5 单测 + 2 e2e）
+- [x] T3 cookie jar + store v3（tabs/bookmarks/cookies + SecretBox；DPAPI 留 T12）
 - [ ] T4 cb-render 布局引擎
 - [ ] T5 cb-tui 状态机与键位
 - [ ] T6 全屏屏幕与视图（alternate screen + RAII）

@@ -103,6 +103,9 @@ enum Cmd {
     /// 反爬挑战统计 · Anti-bot challenge stats
     Challenge(commands::challenge::ChallengeArgs),
 
+    /// 登录态 cookie · Session cookies (names only, never values)
+    Cookies(commands::cookies::CookiesArgs),
+
     /// 本地库维护 · Local database maintenance
     Db(commands::db::DbArgs),
 
@@ -654,6 +657,77 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 Ok(0)
             }
         },
+        Cmd::Cookies(args) => match &args.cmd {
+            commands::cookies::CookiesCmd::List { domain } => {
+                let entries: Vec<serde_json::Value> = match domain {
+                    Some(host) => ctx
+                        .cookies
+                        .load(host)
+                        .into_iter()
+                        .map(cookie_json)
+                        .collect(),
+                    None => {
+                        let domains = ctx
+                            .store
+                            .cookie_domains()
+                            .map_err(cb_core::error::store_err)?;
+                        let mut all = Vec::new();
+                        for host in domains {
+                            for c in ctx.cookies.load(&host) {
+                                all.push(cookie_json(c));
+                            }
+                        }
+                        all
+                    }
+                };
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "entries": entries, "count": entries.len() }),
+                    );
+                    output::print_json(&envelope);
+                } else if entries.is_empty() {
+                    println!("no cookies stored");
+                } else {
+                    for e in &entries {
+                        println!(
+                            "{}  {}  {}",
+                            e["domain"].as_str().unwrap_or(""),
+                            e["name"].as_str().unwrap_or(""),
+                            e["path"].as_str().unwrap_or("")
+                        );
+                    }
+                }
+                Ok(0)
+            }
+            commands::cookies::CookiesCmd::Clear { domain } => {
+                ctx.cookies.clear(domain.as_deref());
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "cleared": true, "domain": domain }),
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    println!(
+                        "cleared cookies{}",
+                        domain
+                            .as_deref()
+                            .map(|d| format!(" for {d}"))
+                            .unwrap_or_default()
+                    );
+                }
+                Ok(0)
+            }
+        },
         Cmd::Challenge(args) => match &args.cmd {
             commands::challenge::ChallengeCmd::Stats { days } => {
                 let since = cb_core::now_secs() - days * 86_400;
@@ -803,4 +877,15 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
         }
         Cmd::Shell => Ok(0),
     }
+}
+fn cookie_json(c: cb_net::cookies::Cookie) -> serde_json::Value {
+    serde_json::json!({
+        "domain": c.domain,
+        "name": c.name,
+        "path": c.path,
+        "secure": c.secure,
+        "http_only": c.http_only,
+        "expires_at": c.expires_at,
+        "session_like": c.looks_like_session(),
+    })
 }

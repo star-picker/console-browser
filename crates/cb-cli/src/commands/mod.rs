@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod ai;
 pub mod challenge;
+pub mod cookies;
 pub mod db;
 pub mod export;
 pub mod fetch;
