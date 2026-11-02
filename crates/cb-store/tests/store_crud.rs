@@ -130,3 +130,33 @@ fn logs_append_and_prune_reports_counts() {
     assert_eq!(report.logs_deleted, 0);
     assert_eq!(report.history_deleted, 0);
 }
+#[test]
+fn tabs_session_roundtrip() {
+    let store = Store::open_in_memory().expect("open");
+    store
+        .save_tabs(&[
+            cb_store::TabRow {
+                slot: 0,
+                url: "https://a.example/".to_string(),
+                title: "A".to_string(),
+                scroll: 3,
+                nav_json: "[\"https://a.example/\"]".to_string(),
+            },
+            cb_store::TabRow {
+                slot: 1,
+                url: "https://b.example/".to_string(),
+                title: "B".to_string(),
+                scroll: 0,
+                nav_json: "[\"https://b.example/\",\"https://b.example/2\"]".to_string(),
+            },
+        ])
+        .expect("save");
+    let rows = store.load_tabs().expect("load");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[1].url, "https://b.example/");
+    assert_eq!(rows[1].scroll, 0);
+
+    // 快照语义：再存一次更少的标签，旧的必须消失
+    store.save_tabs(&[]).expect("clear");
+    assert!(store.load_tabs().expect("load").is_empty());
+}

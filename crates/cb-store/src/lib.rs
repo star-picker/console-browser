@@ -209,6 +209,15 @@ pub struct LlmCall {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabRow {
+    pub slot: i64,
+    pub url: String,
+    pub title: String,
+    pub scroll: i64,
+    pub nav_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredCookie {
     pub domain: String,
     pub name: String,
@@ -556,6 +565,47 @@ impl Store {
             )?;
         }
         Ok(())
+    }
+
+    /// 整批保存标签页会话（先清空再写入，语义 = 快照）。
+    pub fn save_tabs(&self, tabs: &[TabRow]) -> Result<()> {
+        let conn = self.lock();
+        conn.execute("DELETE FROM tabs", [])?;
+        for tab in tabs {
+            conn.execute(
+                r#"INSERT INTO tabs (slot,url,title,scroll,nav_json,updated_at)
+                   VALUES (?1,?2,?3,?4,?5,?6)"#,
+                params![
+                    tab.slot,
+                    tab.url,
+                    tab.title,
+                    tab.scroll,
+                    tab.nav_json,
+                    now_secs()
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn load_tabs(&self) -> Result<Vec<TabRow>> {
+        let conn = self.lock();
+        let mut stmt =
+            conn.prepare("SELECT slot,url,title,scroll,nav_json FROM tabs ORDER BY slot")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(TabRow {
+                slot: r.get(0)?,
+                url: r.get(1)?,
+                title: r.get(2)?,
+                scroll: r.get(3)?,
+                nav_json: r.get(4)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     /// 库里出现过 cookie 的域名（去重）。

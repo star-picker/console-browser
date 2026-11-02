@@ -64,6 +64,21 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M3-UI · T7-T10 落地：取消、链接列表、会话恢复、浮层
+
+- **T7 取消**：Browse 模式按 Esc → 标签加载代数 +1，迟到结果按 gen 丢弃，页面回到「已取消」通知页；有测试（cancel 后 on_loaded 不得落地）。
+- **T8 链接列表**：`L` 从当前 RenderDoc 的链接表填充浮层（`[id] 文本 / URL`），Enter 直接导航；焦点环/查找此前已通。测试覆盖填充与选中。
+- **T9 会话恢复**：store 增 `save_tabs/load_tabs`（快照语义：整批覆盖）；App 增 `snapshot_tabs/restore_tabs`（过滤空占位条目、恢复导航栈与滚动）；driver 启动时恢复（`--no-restore` 关闭）、退出时保存。store 与会话各 1 条测试。
+- **T10 浮层**：
+  - 历史：`Ctrl-H` → driver 从 sqlite 取 100 条填充，Enter 打开。
+  - 命令面板：静态动作表（20 项）+ `action:<name>` 回投到 App，测试断言每项都能映射到动作。
+  - 命令行 `:`：提交后 driver 用 `current_exe` 起子进程跑原 CLI 参数，输出截断进状态栏/日志。
+  - AI 面板：`Ctrl-A` 进输入模式，提交后带「标题+URL+前 120 行」上下文调模型，回答进浮层。
+  - 日志：App 维护 200 条 trace 环，`cb:trace` 浮层倒序展示。
+- Ruling: 命令行用**子进程调用自身**而不是把 clap 搬进 cb-tui —— 依赖方向干净（cb-cli 依赖 cb-tui，不能反向），且复用全部参数解析 —— 代价：每次命令多一次进程启动（毫秒级）。
+- Ruling: 会话快照落 `tabs` 表按「整批覆盖」，不做增量 —— 语义简单、不会残留幽灵标签 —— 代价：多标签频繁切换时写放大（可忽略，行数少）。
+- 证据：`cargo test --workspace` 全绿；新增 store 1 + cb-tui 6 条测试。
+
 ### M3-UI · T4-T6 落地：能跑起来的全屏浏览器
 
 - **T4 cb-render**：`Layout::new(doc, width)` → 折行行（CJK 用 unicode-width）、表格列对齐、代码不折行、引用前缀、链接 id→行号索引、`find(needle)` 返回命中行。8 测试。

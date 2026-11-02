@@ -273,6 +273,7 @@ pub enum Effect {
         url: String,
     },
     RunCommand {
+        tab: usize,
         line: String,
     },
     CopyUrl {
@@ -281,6 +282,23 @@ pub enum Effect {
     SaveCookies {
         raw: String,
     },
+    LoadHistory,
+    AskAi {
+        question: String,
+        context: String,
+    },
+    RunPaletteAction(String),
+}
+
+/// 会话快照：退出时落库、启动时恢复。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabSnapshot {
+    pub slot: usize,
+    pub url: String,
+    pub title: String,
+    pub scroll: u16,
+    pub nav: Vec<String>,
+    pub nav_cursor: usize,
 }
 
 pub struct App {
@@ -295,6 +313,8 @@ pub struct App {
     pub should_quit: bool,
     pub raw_view: bool,
     pub markdown_view: bool,
+    /// 最近的状态/日志（trace 浮层用）。
+    pub trace: Vec<String>,
     pending_gen: u64,
 }
 
@@ -320,7 +340,18 @@ impl App {
             should_quit: false,
             raw_view: false,
             markdown_view: false,
+            trace: Vec::new(),
             pending_gen: 0,
+        }
+    }
+
+    /// 记一条状态（同时进 trace 环，最多 200 条）。
+    pub fn set_status(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        self.status = message.clone();
+        self.trace.push(message);
+        if self.trace.len() > 200 {
+            self.trace.remove(0);
         }
     }
 
@@ -360,8 +391,11 @@ impl App {
                     }
                     crate::route::Target::Command(line) => {
                         self.mode = Mode::Browse;
-                        self.status = format!("command: {line}");
-                        Some(Effect::RunCommand { line })
+                        self.set_status(format!("command: {line}"));
+                        Some(Effect::RunCommand {
+                            tab: self.active,
+                            line,
+                        })
                     }
                 }
             }
@@ -377,8 +411,20 @@ impl App {
                 if line.trim().is_empty() {
                     None
                 } else {
-                    Some(Effect::RunCommand { line })
+                    Some(Effect::RunCommand {
+                        tab: self.active,
+                        line,
+                    })
                 }
+            }
+            InputKind::AiPrompt => {
+                let question = self.omnibox.text();
+                self.mode = Mode::Browse;
+                if question.trim().is_empty() {
+                    return None;
+                }
+                let context = self.page_context();
+                Some(Effect::AskAi { question, context })
             }
             InputKind::PasteCookies => {
                 let raw = self.omnibox.text();
@@ -767,6 +813,199 @@ impl App {
         self.omnibox.set_text(url);
     }
 
+    /// 当前页给 AI 的上下文（标题 + 前若干行纯文本）。
+    pub fn page_context(&self) -> String {
+        let tab = self.tab();
+        let Some(page) = &tab.page else {
+            return String::new();
+        };
+        let mut out = format!("title: {}\nurl: {}\n\n", page.title, page.final_url);
+        for line in page.layout.lines.iter().take(120) {
+            let text = line.text();
+            if !text.trim().is_empty() {
+                out.push_str(&text);
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    /// 取消当前加载：让代数前进，迟到结果自动作废。
+    pub fn cancel_load(&mut self) {
+        let width = self.width;
+        let tab = self.tab_mut();
+        tab.gen += 1;
+        if matches!(
+            tab.page.as_ref().map(|p| &p.status),
+            Some(LoadStatus::Loading)
+        ) {
+            tab.page = Some(PageView::synthetic(
+                width,
+                tab.url(),
+                LoadStatus::Idle,
+                NoticeLevel::Info,
+                "已取消 / cancelled",
+                "",
+            ));
+        }
+    }
+
+    pub fn snapshot_tabs(&self) -> Vec<TabSnapshot> {
+        self.tabs
+            .iter()
+            .enumerate()
+            .map(|(slot, tab)| {
+                // 空 URL（新标签页的占位条目）不落盘，也不参与恢复。
+                let mut nav = Vec::new();
+                let mut nav_cursor = 0usize;
+                for (idx, entry) in tab.entries.iter().enumerate() {
+                    if entry.url.is_empty() {
+                        continue;
+                    }
+                    if idx <= tab.cursor {
+                        nav_cursor = nav.len();
+                    }
+                    nav.push(entry.url.clone());
+                }
+                TabSnapshot {
+                    slot,
+                    url: tab.url().to_string(),
+                    title: tab.title(),
+                    scroll: tab.scroll,
+                    nav,
+                    nav_cursor,
+                }
+            })
+            .collect()
+    }
+
+    /// 恢复标签：只填历史条目，页面内容按需再加载（启动时只拉当前标签）。
+    pub fn restore_tabs(&mut self, snapshots: &[TabSnapshot]) {
+        let snapshots: Vec<&TabSnapshot> = snapshots.iter().filter(|s| !s.url.is_empty()).collect();
+        if snapshots.is_empty() {
+            return;
+        }
+        self.tabs = snapshots
+            .iter()
+            .map(|snap| {
+                let nav: Vec<String> = if snap.nav.is_empty() {
+                    vec![snap.url.clone()]
+                } else {
+                    snap.nav.clone()
+                };
+                let cursor = snap.nav_cursor.min(nav.len().saturating_sub(1));
+                let entries: Vec<HistoryEntry> = nav
+                    .into_iter()
+                    .map(|url| HistoryEntry {
+                        url,
+                        title: String::new(),
+                        scroll: 0,
+                        focus: None,
+                    })
+                    .collect();
+                Tab {
+                    entries,
+                    cursor,
+                    page: None,
+                    scroll: snap.scroll,
+                    focus: None,
+                    find: None,
+                    gen: 0,
+                }
+            })
+            .collect();
+        self.active = 0;
+        self.mode = Mode::Input(InputKind::Omnibox);
+        self.omnibox.set_text(self.tabs[0].url().to_string());
+    }
+
+    pub fn open_trace_overlay(&mut self) {
+        self.open_overlay(OverlayKind::Trace);
+        if let Some(overlay) = &mut self.overlay {
+            overlay.items = self
+                .trace
+                .iter()
+                .rev()
+                .take(200)
+                .map(|line| OverlayItem {
+                    label: line.clone(),
+                    detail: String::new(),
+                    target: String::new(),
+                })
+                .collect();
+        }
+    }
+
+    pub fn open_links_overlay(&mut self) {
+        let links: Vec<(u32, String, String)> = self
+            .tab()
+            .page
+            .as_ref()
+            .and_then(|p| p.doc.as_ref())
+            .map(|doc| {
+                doc.links
+                    .iter()
+                    .map(|l| (l.id, l.text.clone(), l.url.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.open_overlay(OverlayKind::Links);
+        if let Some(overlay) = &mut self.overlay {
+            overlay.items = links
+                .into_iter()
+                .map(|(id, text, url)| OverlayItem {
+                    label: format!("[{id}] {text}"),
+                    detail: url.clone(),
+                    target: url,
+                })
+                .collect();
+        }
+    }
+
+    pub fn open_history_overlay(&mut self, entries: &[(i64, String, String)]) {
+        self.open_overlay(OverlayKind::History);
+        if let Some(overlay) = &mut self.overlay {
+            overlay.items = entries
+                .iter()
+                .map(|(ts, title, url)| OverlayItem {
+                    label: if title.is_empty() {
+                        url.clone()
+                    } else {
+                        title.clone()
+                    },
+                    detail: url.clone(),
+                    target: url.clone(),
+                })
+                .collect();
+        }
+    }
+
+    pub fn open_palette_overlay(&mut self) {
+        self.open_overlay(OverlayKind::Palette);
+        if let Some(overlay) = &mut self.overlay {
+            overlay.items = crate::palette::items();
+        }
+    }
+
+    pub fn set_ai_answer(&mut self, question: &str, answer: &str) {
+        self.open_overlay(OverlayKind::Ai);
+        if let Some(overlay) = &mut self.overlay {
+            let mut items = vec![OverlayItem {
+                label: format!("Q: {question}"),
+                detail: String::new(),
+                target: String::new(),
+            }];
+            for line in answer.lines() {
+                items.push(OverlayItem {
+                    label: line.to_string(),
+                    detail: String::new(),
+                    target: String::new(),
+                });
+            }
+            overlay.items = items;
+        }
+    }
+
     pub fn open_overlay(&mut self, kind: OverlayKind) {
         self.overlay = Some(OverlayState::new(kind));
         self.mode = Mode::Overlay(kind);
@@ -1081,6 +1320,115 @@ mod tests {
         assert!(app.find_next());
         assert!(app.find_prev());
     }
+    #[test]
+    fn cancel_load_invalidates_pending_results() {
+        let mut app = app();
+        app.navigate("https://a.example/slow");
+        let stale_gen = app.tab().gen;
+        app.cancel_load();
+        assert!(app.tab().gen > stale_gen);
+        let doc = notice_doc("late", NoticeLevel::Info, "late result");
+        let view = PageView::ready(
+            "https://a.example/slow",
+            "https://a.example/slow",
+            "late",
+            doc,
+            app.width,
+            false,
+            1,
+            "",
+            "",
+        );
+        app.on_loaded(0, stale_gen, view);
+        let page = app.tab().page.as_ref().expect("page");
+        assert!(
+            matches!(page.status, LoadStatus::Idle),
+            "cancelled load must not land"
+        );
+    }
+
+    #[test]
+    fn session_snapshot_restores_tabs_and_nav() {
+        let mut original = app();
+        original.navigate("https://a.example/1");
+        loaded(&mut original, "https://a.example/1");
+        original.navigate("https://a.example/2");
+        loaded(&mut original, "https://a.example/2");
+        original.new_tab();
+        original.navigate("https://b.example/1");
+        let snaps = original.snapshot_tabs();
+        assert_eq!(snaps.len(), 2);
+        assert_eq!(snaps[1].url, "https://b.example/1");
+
+        let mut restored = app();
+        restored.restore_tabs(&snaps);
+        assert_eq!(restored.tabs.len(), 2);
+        assert_eq!(restored.tab().url(), "https://a.example/2");
+        assert_eq!(restored.tab().entries.len(), 2, "history stack restored");
+        assert!(restored.tab().page.is_none(), "页面内容按需加载");
+    }
+
+    #[test]
+    fn links_overlay_lists_document_links() {
+        let mut app = app();
+        let doc = RenderDoc {
+            title: "t".to_string(),
+            blocks: vec![cb_extract::Block::Paragraph {
+                spans: vec![cb_extract::Span {
+                    text: "a".to_string(),
+                    style: cb_extract::SpanStyle::Normal,
+                    link: Some(0),
+                }],
+            }],
+            links: vec![cb_extract::LinkRef {
+                id: 0,
+                url: "https://x.example/".to_string(),
+                text: "a".to_string(),
+            }],
+        };
+        let gen = app.tab().gen;
+        let view = PageView::ready(
+            "https://a.example/",
+            "https://a.example/",
+            "t",
+            doc,
+            app.width,
+            false,
+            0,
+            "",
+            "",
+        );
+        app.on_loaded(0, gen, view);
+        app.open_links_overlay();
+        let overlay = app.overlay.as_ref().expect("overlay");
+        assert_eq!(overlay.items.len(), 1);
+        assert_eq!(overlay.items[0].target, "https://x.example/");
+        let target = app.overlay_select().expect("target");
+        assert_eq!(target, "https://x.example/");
+    }
+
+    #[test]
+    fn trace_overlay_collects_statuses() {
+        let mut app = app();
+        app.set_status("first");
+        app.set_status("second");
+        app.open_trace_overlay();
+        let overlay = app.overlay.as_ref().expect("overlay");
+        assert_eq!(overlay.items[0].label, "second", "newest first");
+        assert_eq!(overlay.items[1].label, "first");
+    }
+
+    #[test]
+    fn palette_overlay_has_actions() {
+        let mut app = app();
+        app.open_palette_overlay();
+        let overlay = app.overlay.as_ref().expect("overlay");
+        assert!(overlay.items.len() >= 15);
+        assert!(overlay
+            .items
+            .iter()
+            .all(|i| i.target.starts_with("action:")));
+    }
 }
 impl App {
     /// 执行一个动作；需要 IO 时返回 Effect。
@@ -1109,9 +1457,14 @@ impl App {
             }
             Action::Submit => self.submit_input(),
             Action::CancelInput => {
-                self.mode = Mode::Browse;
-                let url = self.tab().url().to_string();
-                self.omnibox.set_text(url);
+                if matches!(self.mode, Mode::Browse) {
+                    self.cancel_load();
+                    self.set_status("cancelled");
+                } else {
+                    self.mode = Mode::Browse;
+                    let url = self.tab().url().to_string();
+                    self.omnibox.set_text(url);
+                }
                 None
             }
             Action::ClearInput => {
@@ -1154,7 +1507,7 @@ impl App {
             Action::Back => self.back(),
             Action::Forward => self.forward(),
             Action::Reload => {
-                self.status = "reload".to_string();
+                self.set_status("reload");
                 self.reload()
             }
             Action::Home => {
@@ -1203,13 +1556,13 @@ impl App {
             }
             Action::FindNext => {
                 if !self.find_next() {
-                    self.status = "no find matches".to_string();
+                    self.set_status("no find matches");
                 }
                 None
             }
             Action::FindPrev => {
                 if !self.find_prev() {
-                    self.status = "no find matches".to_string();
+                    self.set_status("no find matches");
                 }
                 None
             }
@@ -1246,22 +1599,24 @@ impl App {
             }
             Action::ToggleHistory => {
                 self.open_overlay(OverlayKind::History);
-                None
+                Some(Effect::LoadHistory)
             }
             Action::ToggleLinks => {
-                self.open_overlay(OverlayKind::Links);
+                self.open_links_overlay();
                 None
             }
             Action::TogglePalette => {
-                self.open_overlay(OverlayKind::Palette);
+                self.open_palette_overlay();
                 None
             }
             Action::ToggleAi => {
                 self.open_overlay(OverlayKind::Ai);
+                self.mode = Mode::Input(InputKind::AiPrompt);
+                self.omnibox.clear();
                 None
             }
             Action::ToggleTrace => {
-                self.open_overlay(OverlayKind::Trace);
+                self.open_trace_overlay();
                 None
             }
             Action::OverlayUp => {
@@ -1277,7 +1632,12 @@ impl App {
                     if target.starts_with("https://") || target.starts_with("http://") {
                         return Some(self.navigate(&target));
                     }
-                    self.status = format!("selected: {target}");
+                    if let Some(rest) = target.strip_prefix("action:") {
+                        return Some(Effect::RunPaletteAction(rest.to_string()));
+                    }
+                    if !target.is_empty() {
+                        self.set_status(format!("selected: {target}"));
+                    }
                 }
                 None
             }
@@ -1293,7 +1653,7 @@ impl App {
             Action::OpenHumanAssist => {
                 let url = self.tab().url().to_string();
                 if url.is_empty() {
-                    self.status = "nothing loaded".to_string();
+                    self.set_status("nothing loaded");
                     None
                 } else {
                     Some(Effect::OpenAssist { url })
@@ -1314,7 +1674,8 @@ impl App {
             Action::SwitchLang => {
                 let next = cb_core::i18n::current().next();
                 cb_core::i18n::set(next);
-                self.status = format!("lang: {}", next.as_str());
+                let label = format!("lang: {}", next.as_str());
+                self.set_status(label);
                 None
             }
             Action::Quit => {

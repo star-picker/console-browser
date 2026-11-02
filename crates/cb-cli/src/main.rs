@@ -229,6 +229,7 @@ fn main() {
                     replay: None,
                     mouse: true,
                     start_url: None,
+                    no_restore: false,
                 };
                 match cb_tui::run_tui(ctx, opts) {
                     Ok(code) => std::process::exit(code),
@@ -256,6 +257,7 @@ fn main() {
                 replay: args.replay.clone(),
                 mouse: !args.no_mouse,
                 start_url: args.url.clone(),
+                no_restore: args.no_restore,
             };
             match cb_tui::run_tui(ctx, opts) {
                 Ok(code) => std::process::exit(code),

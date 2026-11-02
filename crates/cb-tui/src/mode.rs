@@ -20,6 +20,8 @@ pub enum InputKind {
     Command,
     /// 手动粘贴 cookie。
     PasteCookies,
+    /// AI 面板提问。
+    AiPrompt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

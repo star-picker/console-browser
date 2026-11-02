@@ -8,6 +8,7 @@ pub mod driver;
 pub mod editbuffer;
 pub mod keymap;
 pub mod mode;
+pub mod palette;
 pub mod route;
 pub mod screen;
 pub mod views;

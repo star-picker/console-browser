@@ -19,6 +19,8 @@ pub struct DriverOpts {
     pub replay: Option<PathBuf>,
     pub mouse: bool,
     pub start_url: Option<String>,
+    /// 不恢复上次标签页。
+    pub no_restore: bool,
 }
 
 enum Req {
@@ -39,6 +41,18 @@ enum Req {
     },
     SaveCookies {
         raw: String,
+        url: String,
+    },
+    History,
+    RunCommand {
+        tab: usize,
+        line: String,
+    },
+    AskAi {
+        question: String,
+        context: String,
+    },
+    Assist {
         url: String,
     },
 }
@@ -69,6 +83,16 @@ enum UiEvent {
         code: String,
         message: String,
     },
+    History(Vec<(i64, String, String)>),
+    AiAnswer {
+        question: String,
+        answer: String,
+    },
+    CommandOutput {
+        tab: usize,
+        line: String,
+        output: String,
+    },
     Status(String),
 }
 
@@ -77,6 +101,7 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
     let (width, height) = screen.size();
     let mut app = App::new(width, height);
 
+    let main_ctx = ctx.clone();
     let (req_tx, req_rx) = mpsc::channel::<Req>();
     let (ev_tx, ev_rx) = mpsc::channel::<UiEvent>();
     let replay = opts.replay.clone();
@@ -96,6 +121,15 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
     if let Some(url) = opts.start_url.clone() {
         let effect = app.navigate(&url);
         dispatch(effect, &req_tx, &mut app);
+    } else if !opts.no_restore {
+        if let Some(snapshots) = load_session(&main_ctx) {
+            app.restore_tabs(&snapshots);
+            let url = app.tab().url().to_string();
+            if !url.is_empty() {
+                let effect = app.navigate(&url);
+                dispatch(effect, &req_tx, &mut app);
+            }
+        }
     }
 
     loop {
@@ -130,6 +164,7 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
         }
     }
 
+    save_session(&main_ctx, &app);
     drop(req_tx);
     let _ = loader.join();
     Ok(0)
@@ -163,14 +198,29 @@ fn dispatch(effect: Effect, tx: &mpsc::Sender<Req>, app: &mut App) {
             let url = app.tab().url().to_string();
             let _ = tx.send(Req::SaveCookies { raw, url });
         }
-        Effect::OpenAssist { .. } => {
-            app.status = "human assist: 见 T11（cb login）".to_string();
+        Effect::OpenAssist { url } => {
+            let _ = tx.send(Req::Assist { url });
         }
-        Effect::RunCommand { line } => {
-            app.status = format!("command: {line}（T10 接原 CLI）");
+        Effect::LoadHistory => {
+            let _ = tx.send(Req::History);
+        }
+        Effect::AskAi { question, context } => {
+            let _ = tx.send(Req::AskAi { question, context });
+        }
+        Effect::RunPaletteAction(name) => {
+            if let Some(action) = crate::palette::action_for(&name) {
+                if let Some(next) = app.apply(action) {
+                    dispatch(next, tx, app);
+                }
+            } else {
+                app.set_status(format!("palette: unknown action {name}"));
+            }
+        }
+        Effect::RunCommand { tab, line } => {
+            let _ = tx.send(Req::RunCommand { tab, line });
         }
         Effect::CopyUrl { url } => {
-            app.status = format!("url: {url}");
+            app.set_status(format!("url: {url}"));
         }
     }
 }
@@ -211,7 +261,17 @@ fn apply_event(app: &mut App, ev: UiEvent) {
         } => {
             app.on_failed(tab, gen, &code, &message);
         }
-        UiEvent::Status(msg) => app.status = msg,
+        UiEvent::History(entries) => app.open_history_overlay(&entries),
+        UiEvent::AiAnswer { question, answer } => app.set_ai_answer(&question, &answer),
+        UiEvent::CommandOutput {
+            tab: _,
+            line,
+            output,
+        } => {
+            let head: String = output.chars().take(400).collect();
+            app.set_status(format!("{line} → {head}"));
+        }
+        UiEvent::Status(msg) => app.set_status(msg),
     }
 }
 
@@ -375,6 +435,49 @@ fn handle_req(
             }
             let _ = tx.send(UiEvent::Status(format!("cookies imported: {saved}")));
         }
+        Req::History => {
+            let rows = ctx.store.list_history(None, 100).unwrap_or_default();
+            let entries: Vec<(i64, String, String)> =
+                rows.into_iter().map(|r| (r.ts, r.title, r.url)).collect();
+            let _ = tx.send(UiEvent::History(entries));
+        }
+        Req::RunCommand { tab, line } => {
+            let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("cb"));
+            let output = std::process::Command::new(exe)
+                .arg("--db")
+                .arg("tui-subprocess")
+                .args(line.split_whitespace())
+                .output();
+            let text = match output {
+                Ok(out) => {
+                    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+                    if text.is_empty() {
+                        text = String::from_utf8_lossy(&out.stderr).to_string();
+                    }
+                    text
+                }
+                Err(e) => format!("command failed: {e}"),
+            };
+            let _ = tx.send(UiEvent::CommandOutput {
+                tab,
+                line,
+                output: text,
+            });
+        }
+        Req::AskAi { question, context } => {
+            let prompt = format!(
+                "You are helping a user read the current page in a terminal browser.\nPage context:\n{context}\n\nQuestion: {question}\nAnswer briefly in the user language."
+            );
+            let answer = match runtime.block_on(cb_core::ai::complete(ctx, "ui", &prompt, 600)) {
+                Ok(done) => done.text,
+                Err(err) => format!("{}: {}", err.body.code, err.body.message),
+            };
+            let _ = tx.send(UiEvent::AiAnswer { question, answer });
+        }
+        Req::Assist { url } => {
+            let hint = format!("human assist (T11): cb login {url}");
+            let _ = tx.send(UiEvent::Status(hint));
+        }
     }
 }
 
@@ -429,4 +532,44 @@ fn search_doc(query: &str, results: &[cb_core::SearchResult]) -> RenderDoc {
         blocks,
         links,
     }
+}
+fn load_session(ctx: &Ctx) -> Option<Vec<crate::app::TabSnapshot>> {
+    let rows = ctx.store.load_tabs().ok()?;
+    if rows.is_empty() {
+        return None;
+    }
+    let mut snapshots = Vec::new();
+    for row in rows {
+        let nav: Vec<String> =
+            serde_json::from_str(&row.nav_json).unwrap_or_else(|_| vec![row.url.clone()]);
+        let nav_cursor = row
+            .nav_json
+            .is_empty()
+            .then_some(0usize)
+            .unwrap_or_else(|| nav.len().saturating_sub(1));
+        snapshots.push(crate::app::TabSnapshot {
+            slot: row.slot.max(0) as usize,
+            url: row.url,
+            title: row.title,
+            scroll: row.scroll.max(0) as u16,
+            nav,
+            nav_cursor,
+        });
+    }
+    Some(snapshots)
+}
+
+fn save_session(ctx: &Ctx, app: &crate::App) {
+    let rows: Vec<cb_store::TabRow> = app
+        .snapshot_tabs()
+        .into_iter()
+        .map(|snap| cb_store::TabRow {
+            slot: snap.slot as i64,
+            url: snap.url,
+            title: snap.title,
+            scroll: snap.scroll as i64,
+            nav_json: serde_json::to_string(&snap.nav).unwrap_or_else(|_| "[]".to_string()),
+        })
+        .collect();
+    let _ = ctx.store.save_tabs(&rows);
 }

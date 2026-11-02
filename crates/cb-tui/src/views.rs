@@ -215,6 +215,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
         Mode::Input(InputKind::Find) => "FIND",
         Mode::Input(InputKind::Command) => "CMD",
         Mode::Input(InputKind::PasteCookies) => "COOKIE",
+        Mode::Input(InputKind::AiPrompt) => "AI",
         Mode::Overlay(kind) => match kind {
             OverlayKind::Help => "HELP",
             OverlayKind::History => "HISTORY",

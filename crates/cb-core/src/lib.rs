@@ -32,6 +32,7 @@ pub use selftest::{run_selftest, SelftestReport};
 pub use tools::{registry, ToolSpec};
 
 /// 一次命令/一次工具调用的运行上下文。
+#[derive(Clone)]
 pub struct Ctx {
     pub store: Store,
     pub profile: Profile,
