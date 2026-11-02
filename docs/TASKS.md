@@ -1,29 +1,61 @@
 # console-browser · 任务清单
 
-## M1 无头内核（当前）
+做完打钩。分类看：建基 / 内核 / 接口 / 界面 / 质量。
 
-| # | 任务 | 状态 | 验收 |
-|---|---|---|---|
-| T1 | 工作区骨架 + 依赖落地验证（wreq 指纹） | 进行中 | `cargo build` 全绿；ADR 写出 TLS 方案结论 |
-| T2 | cb-store：schema + 迁移 + 仓储 API | 待办 | 建库/写读往返/重复 migrate 幂等 |
-| T3 | cb-net：客户端 + 指纹 profile + 录制/回放 | 待办 | 回放返回录制状态/头/体 |
-| T4 | cb-dom + cb-extract → markdown | 待办 | 3 组 fixture golden 快照 |
-| T5 | fetch 管道 + `cb fetch --json` | 待办 | JSON 契约 + 退出码 + 二次读走缓存 |
-| T6 | ToolSpec 注册表 + `cb selftest` | 待办 | 8 项 check；契约文档 |
-| T7 | cb-mcp stdio（4 工具） | 待办 | 握手 + list_tools + browse_url 对打通过 |
-| T8 | 测试台收口 + CI + README | 待办 | fmt/clippy/test 全绿，e2e 脚本可用 |
+## 建基（Foundation）
+
+- [x] T1 工作区骨架：workspace + 7 crate + 依赖落地（wreq 0.15.3 指纹栈可编译）
+- [x] NASM 工具链就位（BoringSSL 汇编编译所需）
+- [x] 本地 git 库 + 台账策略（`docs/PROGRESS.md`）
+- [x] 设计规格 + ADR 0001（TLS 指纹选型）
+- [ ] `.gitattributes` 统一换行，消掉 CRLF 噪音
+
+## 内核（Kernel）
+
+- [x] T2 cb-store：schema + 迁移 + 页面/缓存/历史/日志仓储（4 测试绿）
+- [x] T3 cb-net：指纹 profile + 回放/录制 + 缓存键归一化（2 测试绿）
+- [x] T4 cb-dom：解析 + CSS 选择 + 正文容器评分
+- [x] T4 cb-extract：正文 → markdown（标题/列表/表格/代码/引用/图片/链接）+ token 预算（5 测试绿）
+- [ ] T5 fetch 管道：缓存 → 网络 → DOM → 提取 → 存库 → 历史 → 日志
+
+## 接口（Interfaces）
+
+- [ ] T5 `cb fetch <url> --to md --json`：JSON 信封 + 退出码
+- [ ] T6 ToolSpec 注册表（CLI / MCP / agent 共用一份 schema）
+- [ ] T6 `cb selftest --json`：8 项机器可读检查
+- [ ] T7 cb-mcp stdio：browse_url / search_web / history_search / selftest_status
+- [ ] T7 Hermes 接入文档 `docs/hermes-setup.md`
+
+## 质量（Quality）
+
+- [ ] T8 测试台：fixture 服务 + e2e 脚本 + CI（离线）
+- [ ] T8 README：安装、Hermes 配置、三个 `cb fetch` 例子
+- [ ] T8 `cargo fmt --check` / `clippy -D warnings` 全绿
 
 ## M2 搜索与 AI
-搜索器（ddg/bing/gh/arxiv）、cb-ai（provider/ledger/预算）、challenge LLM 升级、agent 最小循环、export。
+
+- [ ] 搜索引擎适配（ddg / bing / gh / arxiv）
+- [ ] cb-ai：provider（deepseek / openai-compatible / ollama）+ ledger + 预算闸
+- [ ] challenge 探测与策略阶梯（含 LLM 升级、sampling 回调）
+- [ ] agent 最小循环（快照 → 动作 → delta）
+- [ ] `cb export --to html|md`
 
 ## M3 JS 与会话
-QuickJS + DOM/BOM 绑定、fetch 桥、session/daemon、句柄 @eN 与 delta。
+
+- [ ] cb-js：QuickJS + DOM/BOM 绑定子集 + fetch 桥回 cb-net
+- [ ] cb-session + daemon（命名管道、句柄 @eN、delta 快照）
+- [ ] JS 站验收：deepseek 分享页 / GitHub / 一个 SERP
 
 ## M4 界面
-TUI（科幻风、可配键位、命令面板）、webui（axum + SSE，单文件前端）。
+
+- [ ] TUI（科幻风、可配键位、命令面板、渲染快照测试）
+- [ ] webui（axum + SSE，单文件前端，同状态镜像）
 
 ## M5 插件
-plugin.json + QuickJS 模块、权限门控、站点适配器/挑战求解 hook。
+
+- [ ] plugin.json + QuickJS 模块 + 权限门控
+- [ ] 站点适配器 / 挑战求解 hook 示例
 
 ## M6 打磨
-历史/缓存 UI、导出增强、文档、性能守门。
+
+- [ ] 历史/缓存 UI、导出增强、性能守门、文档补完

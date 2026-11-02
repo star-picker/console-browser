@@ -8,8 +8,10 @@ rust-version.workspace = true
 [dependencies]
 anyhow = "1.0.104"
 cb-dom = { version = "0.1.0", path = "../cb-dom" }
+ego-tree = "0.11"
 regex = "1.13.1"
-serde = "1.0.229"
+scraper = "0.29.0"
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
 tracing = "0.1.44"

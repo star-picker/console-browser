@@ -351,8 +351,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cb-dom",
+ "ego-tree",
  "insta",
  "regex",
+ "scraper",
  "serde",
  "serde_json",
  "tempfile",
