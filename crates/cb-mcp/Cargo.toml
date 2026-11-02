@@ -1,0 +1,15 @@
+[package]
+name = "cb-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+cb-core = { version = "0.1.0", path = "../cb-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync"] }
+tracing = "0.1.44"

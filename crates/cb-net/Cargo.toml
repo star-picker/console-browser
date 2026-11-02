@@ -1,0 +1,22 @@
+[package]
+name = "cb-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+blake3 = "1.8.7"
+http = "1.5.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync"] }
+tracing = "0.1.44"
+url = "2.5.8"
+wreq = { version = "0.15.3", features = ["json"] }
+
+[dev-dependencies]
+insta = "1.49.0"
+tempfile = "3.27.0"

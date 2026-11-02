@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cb-core",
+    "crates/cb-store",
+    "crates/cb-net",
+    "crates/cb-dom",
+    "crates/cb-extract",
+    "crates/cb-mcp",
+    "crates/cb-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.90"
+
+[workspace.dependencies]
+cb-core = { path = "crates/cb-core" }
+cb-store = { path = "crates/cb-store" }
+cb-net = { path = "crates/cb-net" }
+cb-dom = { path = "crates/cb-dom" }
+cb-extract = { path = "crates/cb-extract" }
+cb-mcp = { path = "crates/cb-mcp" }

@@ -1,0 +1,15 @@
+[package]
+name = "cb-dom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+html5ever = "0.40.1"
+markup5ever_rcdom = "0.39.0"
+selectors = "0.41.0"
+serde = "1.0.229"
+thiserror = "2.0.21"
+tracing = "0.1.44"
