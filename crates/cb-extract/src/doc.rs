@@ -114,6 +114,15 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, spans:
                         return;
                     }
                     let id = ctx.links.len() as u32;
+                    // 相邻链接挤在一起会变成「新闻hao123地图」，先补个空格再放链接。
+                    if let Some(last) = spans.last() {
+                        if !last
+                            .text
+                            .ends_with(|c: char| c.is_whitespace() || "|，。、；：".contains(c))
+                        {
+                            push_text(spans, " ");
+                        }
+                    }
                     ctx.links.push(LinkRef {
                         id,
                         url: href,
@@ -142,6 +151,10 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, spans:
                         .trim()
                         .to_string();
                     ctx.images.push((alt.clone(), src.clone()));
+                    // 没 alt 的图片是装饰/图标，阅读视图里不占位置。
+                    if alt.is_empty() {
+                        return;
+                    }
                     push_text(spans, &format!("[img: {}] {}", alt, src));
                 }
                 "br" => push_text(spans, " "),
@@ -194,13 +207,63 @@ const CONTAINER_TAGS: &[&str] = &[
 ];
 const LIST_TAGS: &[&str] = &["ul", "ol"];
 
+/// 块级标签真集合：子树里有这些就直接递归，否则整块当行内段落。
+const BLOCK_TAGS: &[&str] = &[
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "div",
+    "section",
+    "article",
+    "main",
+    "header",
+    "footer",
+    "nav",
+    "aside",
+    "ul",
+    "ol",
+    "li",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "td",
+    "th",
+    "pre",
+    "blockquote",
+    "hr",
+    "dl",
+    "dt",
+    "dd",
+    "figure",
+    "figcaption",
+    "form",
+    "fieldset",
+    "details",
+    "summary",
+    "body",
+];
+
 fn has_block_children(el: ElementRef<'_>) -> bool {
-    el.children().any(|c| {
-        c.value()
-            .as_element()
-            .map(|e| !CONTAINER_TAGS.contains(&e.name()) || e.name() == "body")
-            .unwrap_or(false)
-    })
+    el.children()
+        .filter_map(ElementRef::wrap)
+        .any(|c| BLOCK_TAGS.contains(&c.value().name()))
+}
+
+/// 形态像 JSON 数据转储（Baidu/头条这类站会把数据塞进可见文本）。
+/// 这不是正文，别塞进阅读视图或 AI 上下文。
+fn looks_like_json_dump(text: &str) -> bool {
+    let t = text.trim();
+    if t.chars().count() < 120 {
+        return false;
+    }
+    let pairs = t.matches("\":").count() + t.matches("\": ").count();
+    let brackets = t.matches('{').count() + t.matches('[').count();
+    pairs >= 3 && brackets >= 1
 }
 
 fn walk_children(ctx: &mut Ctx, el: ElementRef<'_>, depth: u8, blocks: &mut Vec<Block>) {
@@ -231,7 +294,7 @@ fn walk_element(ctx: &mut Ctx, el: ElementRef<'_>, depth: u8, blocks: &mut Vec<B
         "p" | "div" | "section" | "figure" | "details" | "dl" => {
             if name == "p" || !has_block_children(el) {
                 let spans = inline_spans(ctx, el);
-                if !spans.is_empty() {
+                if !spans.is_empty() && !looks_like_json_dump(&span_text(&spans)) {
                     blocks.push(Block::Paragraph { spans });
                 }
             } else {
@@ -265,7 +328,7 @@ fn walk_element(ctx: &mut Ctx, el: ElementRef<'_>, depth: u8, blocks: &mut Vec<B
                 return;
             }
             let spans = inline_spans(ctx, el);
-            if !spans.is_empty() {
+            if !spans.is_empty() && !looks_like_json_dump(&span_text(&spans)) {
                 blocks.push(Block::Paragraph { spans });
             }
         }

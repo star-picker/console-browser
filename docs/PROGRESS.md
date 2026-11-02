@@ -64,6 +64,17 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### 实机渲染缺陷修复：门户页被压平 / JSON 当正文 / 图标图污染
+
+- **根因**：两条 walker 用「直接子元素里有没有非容器标签」判断要不要递归，导致「容器套容器」的页面（百度首页这种 div 里全是 div）被整棵子树当行内文本压成一行；页面内嵌的 JSON 数据转储也顺着这条路径进了正文。
+- **修复**：
+  - 引入块级标签集合 BLOCK_TAGS：子树里有块级元素就递归，只有纯行内内容才拼段落（cb-extract/src/doc.rs 与 lib.rs 同步改）。
+  - looks_like_json_dump：长度 >120 且出现 ≥3 个 `":` 与括号的文本块判定为数据转储，丢弃。
+  - 空 alt 图片（图标/装饰）不再输出占位，但仍收进 images 供 AI 使用。
+  - 相邻行内链接之间补空格：新闻hao123地图 → 新闻 hao123 地图。
+- 回归：新增 crates/cb-extract/tests/portal_page.rs（门户结构 + JSON + 图标图），断言标题/正文保留、JSON 不泄露、图标不出现；原有 7 条 markdown golden 与 6 条文档模型测试全绿。
+- 实机验证（百度首页）：card_title 命中 0、`![]( ` 命中 0，导航行变为可读的「新闻 hao123 地图 贴吧 视频 …」。
+- 目标：已按用户要求把设计文档里尚未实现的功能（webui、插件、cb-js、daemon、日志文件、差量、site_strategy、FTS、bookmarks、AI 流式、MCP sampling）全部写进目标，逐轮推进。
 ### 语言开关=单语言整体切换 + 人机逻辑打磨（本轮）
 
 - **单语言整体切换**：

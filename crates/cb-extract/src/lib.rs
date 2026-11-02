@@ -52,9 +52,6 @@ fn sel(css: &str) -> Option<Selector> {
     Selector::parse(css).ok()
 }
 
-const CONTAINER_TAGS: &[&str] = &[
-    "body", "main", "article", "section", "div", "figure", "details", "dl", "td", "th",
-];
 const LIST_TAGS: &[&str] = &["ul", "ol"];
 
 struct Ctx {
@@ -140,6 +137,12 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, out: &
                         out.push_str(text);
                         return;
                     }
+                    // 相邻链接之间补空格，避免 markdown 里粘成一坨。
+                    if let Some(last) = out.chars().last() {
+                        if !last.is_whitespace() && !"|，。、；：([".contains(last) {
+                            out.push(' ');
+                        }
+                    }
                     ctx.links.push(Link {
                         text: text.to_string(),
                         url: href.clone(),
@@ -170,6 +173,10 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, out: &
                         alt: alt.clone(),
                         url: src.clone(),
                     });
+                    // 没 alt 的图片是装饰/图标，别污染 markdown 与 AI 上下文。
+                    if alt.is_empty() {
+                        return;
+                    }
                     out.push_str(&format!("![{alt}]({src})"));
                 }
                 "br" => out.push(' '),
@@ -200,18 +207,67 @@ fn code_fence_language(el: ElementRef<'_>) -> String {
 fn push_inline_block(ctx: &mut Ctx, el: ElementRef<'_>, blocks: &mut Vec<String>) {
     let text = inline_text(ctx, el);
     let t = text.trim();
-    if !t.is_empty() {
+    if !t.is_empty() && !looks_like_json_dump(t) {
         blocks.push(t.to_string());
     }
 }
 
+/// 块级标签真集合：子树里有这些就递归，否则整块当行内段落。
+const BLOCK_TAGS: &[&str] = &[
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "div",
+    "section",
+    "article",
+    "main",
+    "header",
+    "footer",
+    "nav",
+    "aside",
+    "ul",
+    "ol",
+    "li",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "td",
+    "th",
+    "pre",
+    "blockquote",
+    "hr",
+    "dl",
+    "dt",
+    "dd",
+    "figure",
+    "figcaption",
+    "form",
+    "fieldset",
+    "details",
+    "summary",
+    "body",
+];
+
 fn has_block_children(el: ElementRef<'_>) -> bool {
-    el.children().any(|c| {
-        c.value()
-            .as_element()
-            .map(|e| !CONTAINER_TAGS.contains(&e.name()) || e.name() == "body")
-            .unwrap_or(false)
-    })
+    el.children()
+        .filter_map(ElementRef::wrap)
+        .any(|c| BLOCK_TAGS.contains(&c.value().name()))
+}
+
+/// 形态像 JSON 数据转储的文本不是正文，丢掉。
+fn looks_like_json_dump(text: &str) -> bool {
+    let t = text.trim();
+    if t.chars().count() < 120 {
+        return false;
+    }
+    let pairs = t.matches("\":").count() + t.matches("\": ").count();
+    let brackets = t.matches('{').count() + t.matches('[').count();
+    pairs >= 3 && brackets >= 1
 }
 
 fn render_children(ctx: &mut Ctx, el: ElementRef<'_>, indent: usize, blocks: &mut Vec<String>) {
