@@ -22,7 +22,9 @@ BROWSE 42% · 120行 · 350tok  → https://聚焦链接    ← 状态栏
 | `example.com` / `https://…` / `localhost:8080` | 直接导航（域名补 https，localhost 补 http） |
 | `rust http client` | 默认引擎搜索（结果页渲染成普通文档，Enter 打开聚焦结果） |
 | `!gh ripgrep` / `!arxiv diffusion` / `!bing …` | 指定引擎直搜 |
-| `cb:history` / `cb:help` … | 内部命令 |
+| `?` / `/` | 直接呼出帮助浮层（键位表） |
+| `cb:help` `cb:history` `cb:links` `cb:palette` `cb:trace` `cb:ai` `cb:reload` `cb:back` `cb:forward` `cb:top` `cb:bottom` `cb:quit` `cb:export-md` `cb:export-html` `cb:lang` | 界面内部动作（地址栏也能触发，便于发现） |
+| `cb:<其它>` | 当作原 CLI 参数执行 |
 | `:fetch https://a/ --to md` | 直接跑原 CLI 参数（子进程），输出进状态栏/日志 |
 
 ## 键位 / Keymap

@@ -5,9 +5,34 @@ use cb_core::search::Engine;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     Url(String),
-    Search { engine: String, query: String },
+    Search {
+        engine: String,
+        query: String,
+    },
     Command(String),
+    /// 界面内部动作（从地址栏也能触发，方便发现键位）。
+    Internal(String),
 }
+
+/// 地址栏可用的内部动作名（cb: 后面与 ? 都能用）。
+pub const INTERNAL_ACTIONS: &[&str] = &[
+    "help",
+    "history",
+    "links",
+    "palette",
+    "trace",
+    "ai",
+    "reload",
+    "back",
+    "forward",
+    "top",
+    "bottom",
+    "quit",
+    "export-md",
+    "export-html",
+    "lang",
+    "keys",
+];
 
 const DEFAULT_ENGINE: &str = "ddg";
 
@@ -49,7 +74,14 @@ fn normalize_url(input: &str) -> String {
 pub fn classify(input: &str) -> Target {
     let trimmed = input.trim();
     if let Some(rest) = trimmed.strip_prefix("cb:") {
+        let name = rest.trim().to_lowercase();
+        if INTERNAL_ACTIONS.contains(&name.as_str()) {
+            return Target::Internal(name);
+        }
         return Target::Command(rest.trim().to_string());
+    }
+    if trimmed == "?" || trimmed == "/?" {
+        return Target::Internal("help".to_string());
     }
     if let Some(rest) = trimmed.strip_prefix('!') {
         let mut parts = rest.splitn(2, char::is_whitespace);
@@ -141,7 +173,7 @@ mod tests {
     fn cb_prefix_is_a_command() {
         assert_eq!(
             classify("cb:history"),
-            Target::Command("history".to_string())
+            Target::Internal("history".to_string())
         );
         assert_eq!(
             classify("cb: export https://a/ --to html"),

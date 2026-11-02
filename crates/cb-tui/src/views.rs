@@ -15,6 +15,23 @@ const DIM: Color = Color::DarkGray;
 const WARN: Color = Color::Yellow;
 const ERR: Color = Color::Red;
 
+/// ascii 模式下用纯 ASCII 替代线框字符。
+fn glyph<'a>(app: &App, unicode: &'a str, ascii: &'a str) -> &'a str {
+    if app.ascii {
+        ascii
+    } else {
+        unicode
+    }
+}
+
+fn plain_if_mono(app: &App, style: Style) -> Style {
+    if app.no_color {
+        Style::default().add_modifier(style.add_modifier)
+    } else {
+        style
+    }
+}
+
 fn map_style(style: RdStyle, focused: bool, found: bool) -> Style {
     let mut out = match style {
         RdStyle::Normal => Style::default(),
@@ -31,6 +48,7 @@ fn map_style(style: RdStyle, focused: bool, found: bool) -> Style {
     if focused {
         out = out.add_modifier(Modifier::REVERSED);
     }
+    // 颜色在 draw 层按 no_color 剥掉（这里保留修饰符）。
     if found {
         out = out.bg(WARN).fg(Color::Black);
     }
@@ -64,7 +82,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
 fn draw_omnibox(frame: &mut Frame, app: &App, area: Rect) {
     let focused = matches!(app.mode, Mode::Input(InputKind::Omnibox));
-    let label = if focused { "▸ " } else { "  " };
+    let label = if focused {
+        glyph(app, "▸ ", "> ")
+    } else {
+        "  "
+    };
     let text = app.omnibox.text();
     let shown = if text.is_empty() {
         "输入网址或搜索… / type a URL or search…".to_string()
@@ -97,7 +119,10 @@ fn draw_tabbar(frame: &mut Frame, app: &App, area: Rect) {
     let mut spans: Vec<TSpan> = Vec::new();
     for (idx, tab) in app.tabs.iter().enumerate() {
         if idx > 0 {
-            spans.push(TSpan::styled(" │ ", Style::default().fg(DIM)));
+            spans.push(TSpan::styled(
+                glyph(app, " │ ", " | "),
+                Style::default().fg(DIM),
+            ));
         }
         let title = tab.title();
         let short: String = if title.chars().count() > 18 {
@@ -133,7 +158,7 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(DIM),
             ),
         ]);
-        frame.render_widget(Paragraph::new(hint).wrap(Wrap { trim: true }), area);
+        frame.render_widget(Paragraph::new(hint).wrap(Wrap { trim: false }), area);
         return;
     };
 
@@ -264,7 +289,10 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
     if let Some(url) = app.focused_url() {
-        left.push(TSpan::styled("  → ", Style::default().fg(DIM)));
+        left.push(TSpan::styled(
+            glyph(app, "  → ", "  -> "),
+            Style::default().fg(DIM),
+        ));
         left.push(TSpan::styled(url, Style::default().fg(ACCENT)));
     }
     if let Some(find) = &tab.find {
@@ -301,9 +329,15 @@ fn draw_overlay(frame: &mut Frame, app: &App, overlay: &OverlayState, area: Rect
         OverlayKind::Ai => "AI 面板 / AI",
         OverlayKind::Trace => "日志 / Trace",
     };
+    let border_style = plain_if_mono(app, Style::default().fg(ACCENT));
     let block = Block::bordered()
         .title(format!(" {title} "))
-        .border_style(Style::default().fg(ACCENT));
+        .border_style(border_style)
+        .border_type(if app.ascii {
+            ratatui::widgets::BorderType::Plain
+        } else {
+            ratatui::widgets::BorderType::Rounded
+        });
     frame.render_widget(Clear, rect);
     frame.render_widget(block.clone(), rect);
     let inner = block.inner(rect);

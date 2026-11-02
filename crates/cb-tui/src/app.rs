@@ -315,6 +315,10 @@ pub struct App {
     pub markdown_view: bool,
     /// 最近的状态/日志（trace 浮层用）。
     pub trace: Vec<String>,
+    /// 纯 ASCII 字符（不支持的终端用）。
+    pub ascii: bool,
+    /// 关闭颜色（NO_COLOR / mono 主题）。
+    pub no_color: bool,
     pending_gen: u64,
 }
 
@@ -341,6 +345,8 @@ impl App {
             raw_view: false,
             markdown_view: false,
             trace: Vec::new(),
+            ascii: false,
+            no_color: false,
             pending_gen: 0,
         }
     }
@@ -388,6 +394,31 @@ impl App {
                     crate::route::Target::Url(url) => Some(self.navigate(&url)),
                     crate::route::Target::Search { engine, query } => {
                         Some(self.run_search(&engine, &query))
+                    }
+                    crate::route::Target::Internal(name) => {
+                        let action = match name.as_str() {
+                            "help" | "keys" => Action::ToggleHelp,
+                            "history" => Action::ToggleHistory,
+                            "links" => Action::ToggleLinks,
+                            "palette" => Action::TogglePalette,
+                            "trace" => Action::ToggleTrace,
+                            "ai" => Action::ToggleAi,
+                            "reload" => Action::Reload,
+                            "back" => Action::Back,
+                            "forward" => Action::Forward,
+                            "top" => Action::PageTop,
+                            "bottom" => Action::PageBottom,
+                            "quit" => Action::Quit,
+                            "export-md" => Action::ExportMarkdown,
+                            "export-html" => Action::ExportHtml,
+                            "lang" => Action::SwitchLang,
+                            other => {
+                                self.set_status(format!("unknown cb: action {other}"));
+                                return None;
+                            }
+                        };
+                        self.mode = Mode::Browse;
+                        return self.apply(action);
                     }
                     crate::route::Target::Command(line) => {
                         self.mode = Mode::Browse;

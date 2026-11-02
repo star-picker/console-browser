@@ -5,6 +5,7 @@ pub mod cookies;
 pub mod db;
 pub mod export;
 pub mod fetch;
+pub mod login;
 pub mod mcp;
 pub mod search;
 pub mod tui;

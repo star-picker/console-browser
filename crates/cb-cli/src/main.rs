@@ -104,6 +104,18 @@ enum Cmd {
     /// 反爬挑战统计 · Anti-bot challenge stats
     Challenge(commands::challenge::ChallengeArgs),
 
+    /// 人工接力登录 · Human-in-the-loop login (browser window or paste cookies)
+    Login(commands::login::LoginArgs),
+
+    /// 纯文本输出（管道友好）· Plain text output for pipes
+    Plain {
+        /// 目标 URL · Target URL
+        url: String,
+        /// 从 cassette 回放 · Replay a cassette
+        #[arg(long, value_name = "FILE")]
+        replay: Option<PathBuf>,
+    },
+
     /// 登录态 cookie · Session cookies (names only, never values)
     Cookies(commands::cookies::CookiesArgs),
 
@@ -230,6 +242,8 @@ fn main() {
                     mouse: true,
                     start_url: None,
                     no_restore: false,
+                    ascii: std::env::var("CB_ASCII").is_ok(),
+                    no_color: std::env::var("NO_COLOR").is_ok(),
                 };
                 match cb_tui::run_tui(ctx, opts) {
                     Ok(code) => std::process::exit(code),
@@ -255,9 +269,11 @@ fn main() {
             }
             let opts = cb_tui::DriverOpts {
                 replay: args.replay.clone(),
-                mouse: !args.no_mouse,
+                mouse: !args.no_mouse && !args.no_mouse,
                 start_url: args.url.clone(),
                 no_restore: args.no_restore,
+                ascii: args.ascii || std::env::var("CB_ASCII").is_ok(),
+                no_color: args.no_color || std::env::var("NO_COLOR").is_ok(),
             };
             match cb_tui::run_tui(ctx, opts) {
                 Ok(code) => std::process::exit(code),
@@ -705,6 +721,99 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 Ok(0)
             }
         },
+        Cmd::Login(args) => {
+            let url = args.url.clone();
+            if args.manual {
+                use std::io::Read;
+                let mut raw = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut raw)
+                    .map_err(|e| CbError::other(format!("read stdin: {e}")))?;
+                let cookies = cb_assist::import_manual_cookies(&raw, &url);
+                if cookies.is_empty() {
+                    return Err(CbError::usage("no cookie pairs found on stdin"));
+                }
+                ctx.cookies.save(&cookies);
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "saved": cookies.len(), "mode": "manual" }),
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    println!("saved {} cookies for {url}", cookies.len());
+                }
+                return Ok(0);
+            }
+            let mut opts = cb_assist::AssistOpts::new(url.clone());
+            opts.browser = args
+                .browser
+                .as_deref()
+                .and_then(cb_assist::BrowserKind::parse);
+            opts.keep_open = args.keep_open;
+            opts.timeout = std::time::Duration::from_secs(args.timeout_secs);
+            let cookies = cb_assist::run_assist(&opts, |event| match event {
+                cb_assist::AssistEvent::Started { browser, port } => {
+                    eprintln!("cb: opened {} on debug port {port}", browser.as_str());
+                    eprintln!(
+                        "cb: finish the login in that window; cookies are collected automatically"
+                    );
+                }
+                cb_assist::AssistEvent::CookiesUpdated { count } => {
+                    eprintln!("cb: cookies so far: {count}");
+                }
+                _ => {}
+            })
+            .await
+            .map_err(|e| CbError::other(format!("assist failed: {e}")))?;
+            if cookies.is_empty() {
+                return Err(CbError::other("no cookies collected (login cancelled?)"));
+            }
+            ctx.cookies.save(&cookies);
+            if cli.json {
+                let envelope = Envelope::ok(
+                    output::meta(
+                        started.elapsed().as_millis() as u64,
+                        false,
+                        ctx.profile.as_str(),
+                    ),
+                    serde_json::json!({ "saved": cookies.len(), "mode": "browser" }),
+                );
+                output::print_json(&envelope);
+            } else {
+                println!("saved {} cookies for {url}", cookies.len());
+                println!("reload the page (r) to use the session");
+            }
+            Ok(0)
+        }
+        Cmd::Plain { url, replay } => {
+            let opts = cb_core::FetchOpts {
+                url: url.clone(),
+                format: cb_core::Format::Text,
+                replay: replay.clone(),
+                ..Default::default()
+            };
+            let outcome = cb_core::fetch_page(ctx, &opts).await?;
+            let text = cb_extract::to_plain_text(&outcome.markdown);
+            if cli.json {
+                let envelope = Envelope::ok(
+                    output::meta(
+                        started.elapsed().as_millis() as u64,
+                        outcome.cached,
+                        ctx.profile.as_str(),
+                    ),
+                    serde_json::json!({ "url": outcome.final_url, "content": text }),
+                );
+                output::print_json(&envelope);
+            } else {
+                print!("{text}");
+            }
+            Ok(0)
+        }
         Cmd::Cookies(args) => match &args.cmd {
             commands::cookies::CookiesCmd::List { domain } => {
                 let entries: Vec<serde_json::Value> = match domain {

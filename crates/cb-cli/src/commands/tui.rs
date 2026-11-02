@@ -19,4 +19,12 @@ pub struct TuiArgs {
     /// 从 cassette 回放 · Replay cassettes instead of the network
     #[arg(long, value_name = "FILE")]
     pub replay: Option<PathBuf>,
+
+    /// 纯 ASCII 符号（终端不支持线框时）· Plain ASCII glyphs
+    #[arg(long)]
+    pub ascii: bool,
+
+    /// 关闭颜色 · Disable colors
+    #[arg(long)]
+    pub no_color: bool,
 }

@@ -21,6 +21,10 @@ pub struct DriverOpts {
     pub start_url: Option<String>,
     /// 不恢复上次标签页。
     pub no_restore: bool,
+    /// 纯 ASCII 边框与符号。
+    pub ascii: bool,
+    /// 关闭颜色。
+    pub no_color: bool,
 }
 
 enum Req {
@@ -93,6 +97,9 @@ enum UiEvent {
         line: String,
         output: String,
     },
+    AssistDone {
+        saved: usize,
+    },
     Status(String),
 }
 
@@ -100,6 +107,8 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
     let mut screen = Screen::enter(opts.mouse)?;
     let (width, height) = screen.size();
     let mut app = App::new(width, height);
+    app.ascii = opts.ascii || std::env::var("CB_ASCII").is_ok();
+    app.no_color = opts.no_color || std::env::var("NO_COLOR").is_ok() || app.ascii;
 
     let main_ctx = ctx.clone();
     let (req_tx, req_rx) = mpsc::channel::<Req>();
@@ -139,7 +148,13 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
             match event::read()? {
                 CtEvent::Key(key) if key.kind != KeyEventKind::Release => {
                     // 输入模式下普通字符直接进编辑缓冲
-                    if matches!(app.mode, Mode::Input(_)) && key.modifiers.is_empty() {
+                    // 输入模式：除 Ctrl/Alt 组合外一律当字符（Shift 打大写、冒号等都靠它）
+                    if matches!(app.mode, Mode::Input(_))
+                        && !key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL)
+                        && !key.modifiers.contains(crossterm::event::KeyModifiers::ALT)
+                    {
                         if let KeyCode::Char(ch) = key.code {
                             app.omnibox.insert(ch);
                             continue;
@@ -181,7 +196,13 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
         }
 
         while let Ok(ev) = ev_rx.try_recv() {
+            let reload = matches!(ev, UiEvent::AssistDone { .. });
             apply_event(&mut app, ev);
+            if reload {
+                if let Some(effect) = app.reload() {
+                    dispatch(effect, &req_tx, &mut app);
+                }
+            }
         }
         if app.should_quit {
             break;
@@ -296,6 +317,9 @@ fn apply_event(app: &mut App, ev: UiEvent) {
             app.set_status(format!("{line} → {head}"));
         }
         UiEvent::Status(msg) => app.set_status(msg),
+        UiEvent::AssistDone { saved } => {
+            app.set_status(format!("assist done: {saved} cookies saved; reloading"));
+        }
     }
 }
 
@@ -499,8 +523,47 @@ fn handle_req(
             let _ = tx.send(UiEvent::AiAnswer { question, answer });
         }
         Req::Assist { url } => {
-            let hint = format!("human assist (T11): cb login {url}");
-            let _ = tx.send(UiEvent::Status(hint));
+            let mut opts = cb_assist::AssistOpts::new(url.clone());
+            if let Some(port) = std::env::var("CB_ASSIST_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+            {
+                opts.attach_port = Some(port);
+            }
+            let started_tx = tx.clone();
+            let result = runtime.block_on(cb_assist::run_assist(&opts, |event| match event {
+                cb_assist::AssistEvent::Started { browser, port } => {
+                    let _ = started_tx.send(UiEvent::Status(format!(
+                        "assist window: {} (debug port {port})",
+                        browser.as_str()
+                    )));
+                }
+                cb_assist::AssistEvent::CookiesUpdated { count } => {
+                    let _ = started_tx.send(UiEvent::Status(format!("cookies so far: {count}")));
+                }
+                cb_assist::AssistEvent::Failed { message } => {
+                    let _ = started_tx.send(UiEvent::Status(format!("assist failed: {message}")));
+                }
+                _ => {}
+            }));
+            match result {
+                Ok(cookies) if !cookies.is_empty() => {
+                    ctx.cookies.save(&cookies);
+                    let _ = tx.send(UiEvent::AssistDone {
+                        saved: cookies.len(),
+                    });
+                }
+                Ok(_) => {
+                    let _ = tx.send(UiEvent::Status(
+                        "assist finished without cookies; try c to paste them".to_string(),
+                    ));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiEvent::Status(format!(
+                        "assist failed: {e} (use c to paste cookies)"
+                    )));
+                }
+            }
         }
     }
 }
@@ -596,4 +659,48 @@ fn save_session(ctx: &Ctx, app: &crate::App) {
         })
         .collect();
     let _ = ctx.store.save_tabs(&rows);
+}
+/// 输入模式下，哪些按键应该变成字符：除 Ctrl/Alt 组合外都算，
+/// Shift 必须放过（否则大写字母和冒号都打不出来）。
+pub fn text_input_char(key: crossterm::event::KeyEvent) -> Option<char> {
+    use crossterm::event::KeyModifiers;
+    if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::ALT) {
+        return None;
+    }
+    match key.code {
+        KeyCode::Char(ch) => Some(ch),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn shift_characters_are_typed_including_colon() {
+        let colon = KeyEvent::new(KeyCode::Char(':'), KeyModifiers::SHIFT);
+        assert_eq!(text_input_char(colon), Some(':'));
+        let upper = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT);
+        assert_eq!(text_input_char(upper), Some('G'));
+        let plain = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        assert_eq!(text_input_char(plain), Some('a'));
+    }
+
+    #[test]
+    fn control_and_alt_combos_are_shortcuts_not_text() {
+        assert_eq!(
+            text_input_char(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL)),
+            None
+        );
+        assert_eq!(
+            text_input_char(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT)),
+            None
+        );
+        assert_eq!(
+            text_input_char(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            None
+        );
+    }
 }

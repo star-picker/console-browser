@@ -7,7 +7,8 @@
 ## 快速开始 · Quick start
 
 ```powershell
-cb                      # 交互模式（双击 exe 也是这个）/ interactive shell (double-click does this)
+cb                      # 全屏 TUI 浏览器（双击 exe 也是这个）/ full-screen TUI (double-click does this)
+cb shell                # 原来的逐行 REPL / the old line-by-line REPL
 cb fetch https://example.com/a
 cb fetch https://example.com/a --help   # 每条命令都有独立帮助 / every command has its own help
 ```
@@ -27,9 +28,12 @@ cb fetch <url> [--to md|html|text|json] [--max-tokens N] [--scope CSS]
                [--ai-escalate]
 cb search <q> --engine ddg|bing|gh|arxiv [--limit N]   # 结构化搜索
 cb history [--query Q] [--limit N]
+cb login <url> [--manual]    # 人工接力登录（浏览器窗口 / 粘贴 Cookie）
+cb cookies list|clear        # 登录态 cookie（只报名字，不打印值）
 cb ai config|usage|ask        # 模型配置 / token 台账 / 一次性提问
 cb agent run "<goal>" [--max-steps N] [--budget T]   # 自主循环：搜 → 抓 → 答
 cb challenge stats           # 反爬挑战胜负统计（含 llm-assist 一阶）
+cb plain <url>               # 纯文本输出（管道友好）
 cb db prune|stats|schema   # 清理 / 行数 / 表结构
 cb shell                    # 交互模式（不带参数运行等价）
 cb tools            # 能力表（CLI / MCP / agent 共用一份 schema）

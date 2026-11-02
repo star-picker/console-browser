@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
+cb-assist = { version = "0.1.0", path = "../cb-assist" }
 cb-core = { version = "0.1.0", path = "../cb-core" }
 cb-extract = { version = "0.1.0", path = "../cb-extract" }
 cb-mcp = { version = "0.1.0", path = "../cb-mcp" }

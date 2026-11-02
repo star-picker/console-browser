@@ -64,6 +64,19 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M3-UI · T11/T12 落地 + 输入法修复（回应实机反馈）
+
+- **实机反馈修复**：输入框打不出冒号/大写 —— 之前只接受「无修饰键」的字符，Shift 被误杀。新增 `text_input_char`（放行 Shift，只排除 Ctrl/Alt），有测试（`:`、`G` 可输入；Ctrl-W/Alt-1 不输入）。
+- **键位可发现**：地址栏可直接敲 `?` / `/?` / `cb:help` 呼出帮助浮层；`cb:history|links|palette|trace|ai|reload|back|forward|top|bottom|quit|export-md|export-html|lang` 都能从地址栏触发（route::Target::Internal）。空状态提示也改成中英双行 + 一行键位速览。
+- **T11 人工接力（cb-assist）**：
+  - 浏览器发现（Edge/Chrome 常见路径）、临时 profile + `--remote-debugging-port`、CDP `Network.enable` + 轮询 `getAllCookies`（tokio-tungstenite）、会话 cookie 出现即收工、结束杀进程并删临时目录（`--keep-open` 保留）。
+  - 纯函数可测：`import_manual_cookies`（Cookie 头 / Set-Cookie 两种写法）、`pick_target`、`cookies_from_cdp`（过滤过期）。
+  - 入口：TUI `e`（打开助手浏览器，收工后自动写 jar 并重载）、`c` 粘贴 Cookie；CLI `cb login <url> [--manual] [--browser edge|chrome] [--keep-open] [--timeout-secs]`。
+- **T12 打磨**：鼠标滚轮/点击聚焦链接、`--no-mouse`、`--ascii`（ASCII 线框与箭头）、`NO_COLOR`、终端过小保护。
+- 新增 `cb plain <url>`：纯文本（去 markdown 标记）输出，管道友好 —— 对应计划里的「--plain」入口（裁决：做成子命令而不是全局开关，避免和 `--json` 组合歧义）。
+- Ruling: futures-util 在镜像上锁到 0.3.32（0.3.34 的 futures-macro 镜像缺版本），用 `cargo update --precise` 降级 —— 属于依赖水面，不影响功能 —— 代价：等镜像补齐后可升级。
+- 证据：`cargo test --workspace` 全绿（新增 assist 6、login/plain 3、input 2、internal route/1）；clippy/fmt 干净。
+
 ### M3-UI · T7-T10 落地：取消、链接列表、会话恢复、浮层
 
 - **T7 取消**：Browse 模式按 Esc → 标签加载代数 +1，迟到结果按 gen 丢弃，页面回到「已取消」通知页；有测试（cancel 后 on_loaded 不得落地）。
