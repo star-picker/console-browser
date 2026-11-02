@@ -24,11 +24,12 @@ Pick with `--lang zh|en`, or `CB_LANG`, otherwise the system locale; the choice 
 cb fetch <url> [--to md|html|text|json] [--max-tokens N] [--scope CSS]
                [--profile chrome|firefox|safari] [--fresh]
                [--replay FILE] [--record FILE] [--out FILE] [--json]
+               [--ai-escalate]
 cb search <q> --engine ddg|bing|gh|arxiv [--limit N]   # 结构化搜索
 cb history [--query Q] [--limit N]
 cb ai config|usage|ask        # 模型配置 / token 台账 / 一次性提问
 cb agent run "<goal>" [--max-steps N] [--budget T]   # 自主循环：搜 → 抓 → 答
-cb challenge stats           # 反爬挑战胜负统计
+cb challenge stats           # 反爬挑战胜负统计（含 llm-assist 一阶）
 cb db prune|stats|schema   # 清理 / 行数 / 表结构
 cb shell                    # 交互模式（不带参数运行等价）
 cb tools            # 能力表（CLI / MCP / agent 共用一份 schema）

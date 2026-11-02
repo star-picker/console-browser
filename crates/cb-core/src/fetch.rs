@@ -40,6 +40,8 @@ pub struct FetchOpts {
     pub replay: Option<PathBuf>,
     pub record: Option<PathBuf>,
     pub timeout_ms: u64,
+    /// 挑战升到最后一阶时，允许花 token 问模型（默认关闭）。
+    pub ai_escalate: bool,
 }
 
 impl Default for FetchOpts {
@@ -54,6 +56,7 @@ impl Default for FetchOpts {
             replay: None,
             record: None,
             timeout_ms: DEFAULT_TIMEOUT_MS,
+            ai_escalate: false,
         }
     }
 }
@@ -155,6 +158,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
     // 反爬阶梯：403 就换一个浏览器指纹再试，最多三轮，全程留痕。
     let mut resp = None;
     let mut last_challenge: Option<CbError> = None;
+    let mut last_challenge_body: Option<String> = None;
     for (attempt, profile) in challenge_ladder(ctx.profile).into_iter().enumerate() {
         let client = match &opts.replay {
             Some(path) => cb_net::NetClient::replay(path)?,
@@ -193,6 +197,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
                 ok: false,
                 detail: Some(format!("attempt {}", attempt + 1)),
             });
+            last_challenge_body = Some(decode_body(&attempt_resp.body, &attempt_resp.headers));
             last_challenge = Some(status_error(attempt_resp.status, &opts.url));
             continue;
         }
@@ -216,7 +221,40 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
 
     let resp = match resp {
         Some(r) => r,
-        None => return Err(last_challenge.unwrap_or_else(|| CbError::other("no attempt ran"))),
+        None => {
+            let mut err = last_challenge.unwrap_or_else(|| CbError::other("no attempt ran"));
+            // 最后一阶：模型看挑战页给建议（默认关闭，显式 --ai-escalate 才走）。
+            if opts.ai_escalate {
+                if let Some(body) = last_challenge_body {
+                    match crate::challenge::llm_advice(ctx, &opts.url, &body).await {
+                        Ok(advice) => {
+                            let _ = ctx.store.record_challenge(&cb_store::ChallengeEvent {
+                                ts: ctx.now(),
+                                domain: domain.clone(),
+                                kind: "http-403".to_string(),
+                                strategy: "llm-assist".to_string(),
+                                ok: true,
+                                detail: Some(advice.chars().take(200).collect()),
+                            });
+                            if let Some(needs) = err.body.needs_user.as_mut() {
+                                needs.hint = format!("{} | model: {advice}", needs.hint);
+                            }
+                        }
+                        Err(e) => {
+                            let _ = ctx.store.record_challenge(&cb_store::ChallengeEvent {
+                                ts: ctx.now(),
+                                domain: domain.clone(),
+                                kind: "http-403".to_string(),
+                                strategy: "llm-assist".to_string(),
+                                ok: false,
+                                detail: Some(e.body.message.chars().take(200).collect()),
+                            });
+                        }
+                    }
+                }
+            }
+            return Err(err);
+        }
     };
 
     let content_type = resp.header("content-type").unwrap_or("").to_string();

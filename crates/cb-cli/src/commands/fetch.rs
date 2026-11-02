@@ -48,6 +48,10 @@ pub struct FetchArgs {
     /// 超时毫秒 · Timeout in milliseconds
     #[arg(long, default_value_t = 30_000, value_name = "MS")]
     pub timeout_ms: u64,
+
+    /// 挑战升到最后一阶时问模型（花 token）· Ask the model as the last escalation rung
+    #[arg(long)]
+    pub ai_escalate: bool,
 }
 
 impl FetchArgs {
@@ -65,6 +69,7 @@ impl FetchArgs {
             replay: self.replay.clone(),
             record: self.record.clone(),
             timeout_ms: self.timeout_ms,
+            ai_escalate: self.ai_escalate,
         })
     }
 }

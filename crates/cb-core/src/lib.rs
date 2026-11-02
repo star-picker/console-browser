@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod ai;
+pub mod challenge;
 pub mod envelope;
 pub mod error;
 pub mod export;

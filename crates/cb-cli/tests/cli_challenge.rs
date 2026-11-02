@@ -47,3 +47,66 @@ fn blocked_page_walks_the_fingerprint_ladder_and_is_recorded() {
         .iter()
         .any(|e| e["strategy"].as_str().unwrap_or("").contains("chrome")));
 }
+
+#[test]
+fn ai_escalation_adds_model_advice_and_is_recorded() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let blocked = fixture("blocked.cassette.json");
+    let ai = fixture("ai_challenge.cassette.json");
+    let mut fetch = cb(&dir);
+    fetch
+        .args([
+            "fetch",
+            "https://blocked.example/x",
+            "--ai-escalate",
+            "--replay",
+            &blocked,
+        ])
+        .env("CB_AI_PROVIDER", "openai")
+        .env("CB_AI_BASE_URL", "https://ai.test/v1")
+        .env("CB_AI_MODEL", "test-model")
+        .env("CB_AI_KEY", "sk-test-not-real")
+        .env("CB_AI_REPLAY", ai);
+    let (code, v) = run(&mut fetch);
+    assert_eq!(code, 4, "{}", v);
+    let hint = v["error"]["needs_user"]["hint"].as_str().expect("hint");
+    assert!(
+        hint.contains("model:"),
+        "model advice must be surfaced: {hint}"
+    );
+    assert!(hint.contains("IP-based"), "got: {hint}");
+
+    let mut stats = cb(&dir);
+    stats.args(["challenge", "stats"]);
+    let (code, v) = run(&mut stats);
+    assert_eq!(code, 0);
+    let entries = v["data"]["entries"].as_array().expect("entries");
+    let llm = entries
+        .iter()
+        .find(|e| e["strategy"] == "llm-assist")
+        .expect("llm-assist row");
+    assert_eq!(llm["wins"], 1);
+}
+
+#[test]
+fn escalation_without_ai_config_keeps_the_plain_challenge_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let blocked = fixture("blocked.cassette.json");
+    let mut fetch = cb(&dir);
+    fetch
+        .args([
+            "fetch",
+            "https://blocked.example/x",
+            "--ai-escalate",
+            "--replay",
+            &blocked,
+        ])
+        .env_remove("DEEPSEEK_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("CB_AI_KEY")
+        .env("CB_AI_PROVIDER", "deepseek");
+    let (code, v) = run(&mut fetch);
+    assert_eq!(code, 4, "{}", v);
+    let hint = v["error"]["needs_user"]["hint"].as_str().expect("hint");
+    assert!(!hint.contains("model:"), "no advice expected: {hint}");
+}

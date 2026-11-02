@@ -64,6 +64,15 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M2 收尾 · 挑战升级最后一阶（模型兜底）
+
+- 新增 `cb-core/src/challenge.rs`：截取挑战页前 2000 字符，问模型「下一步该干什么」，回答截 400 字符拼进 `needs_user.hint`。
+- 触发条件：仅 `cb fetch --ai-escalate`（默认关闭，绝不偷偷花 token）；没有配置模型时保持原来的 challenge_unsolved 行为。
+- 记账：成功/失败都写 `challenge_events`，strategy=`llm-assist`，`cb challenge stats` 能看到这一阶的胜负。
+- 完整阶梯现在是：换指纹（最多 3 轮）→ 可选模型兜底 → `needs_user` 交人/交调用方（sampling 回调留 M3）。
+- Ruling: 模型建议只作为「提示」返回，不自动执行（不自动设 cookie、不自动重放）—— 自动改请求头是安全面，需要人的判断 —— 代价：还得人工/agent 决策一次。
+- 证据：cb-core 新增 1 单测（提示词有界 + 不诱导编造凭证）；CLI 新增 2 e2e（有模型→hint 带 model 建议且台账有 llm-assist；无模型→保持原错误）；`cargo test --workspace` 全绿。
+
 ### M2 切片 4 · 自主循环 + 反爬阶梯
 
 - **agent**（cb-core/src/agent.rs）：`cb agent run "<goal>"`。循环 = 提示词（目标 + 已走步骤 + 剩余步数）→ 模型出**一个** JSON 动作（search / fetch / answer）→ 执行 → 观察（按 `--observation-chars` 裁剪）→ 下一轮。护栏：`--max-steps`、`--budget`（本任务 completion token 上限）、模型没按格式回就把整段当答案（不把用户卡死在循环里）。
