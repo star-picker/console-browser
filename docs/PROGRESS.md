@@ -29,6 +29,17 @@
 - Ruling: M1 只建 5 张表（pages/cache_entries/history/logs/settings）；FTS5、page_revisions、llm_calls、challenge_events 延到 M2/M3 —— 当前无人读它们 —— 代价：M2 加迁移。
 - 证据：`cargo test -p cb-store`、`-p cb-net`、`-p cb-extract` 全绿。
 
+### T5 fetch 管道 · T6 能力表/自检 · T7 MCP · T8 测试台
+
+- T5：`cb fetch` 打通缓存 → 网络 → DOM → 提取 → 存库 → 历史；JSON 信封 + 退出码契约。e2e 4 绿（缓存命中、500→exit 3、html 原样、未知格式→exit 2）。
+- T6：`ToolSpec` 注册表（browse_url / history_search / selftest_status），`cb tools`、`cb selftest` 八项检查（db/fs/net/tls/js/llm/cache/mcp）。契约测试 3 绿。
+- T7：手写 JSON-RPC 2.0 stdio MCP 服务端（initialize / tools/list / tools/call / ping），`--replay` 可离线；握手测试 2 绿。Hermes 配置文档落地。
+- T8：`scripts/cb-e2e.ps1`、Windows CI（NASM + fmt + clippy + test，全程离线）、README、`.gitattributes`。
+- Ruling: replay 与本地缓存并存（去掉「回放时跳过缓存」）—— 回放只是网络后端，缓存语义不变 —— 代价：回放测试第二次读会命中缓存，需显式 `--fresh` 才重新回放。
+- Ruling: M1 的 MCP 只宣告 3 个工具，`search_web` 延到 M2 —— 不宣告做不到的能力 —— 代价：与最初计划差一个工具名。
+- 事故：用 PowerShell `Set-Content` 改源码导致 UTF-8 被二次编码、文件损坏；已从 git 还原并用 read/edit 工具重做。**规则：源码只用 read/edit/write 工具改，脚本只做只读检查。**
+- 证据：`cargo test --workspace` 20 passed / 1 ignored（oracle）；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过；`scripts/cb-e2e.ps1 -SkipTests` 退出 0。
+
 ### 安全事件 · 凭证泄露（2026-01-01）
 
 - 会话中有人贴入一枚 GitHub PAT。该令牌已视为**泄露**，不得写入仓库、remote、配置、日志或脚本。

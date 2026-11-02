@@ -127,6 +127,12 @@ pub struct Cassette {
     pub entries: Vec<CassetteEntry>,
 }
 
+impl Default for Cassette {
+    fn default() -> Cassette {
+        Cassette::new()
+    }
+}
+
 impl Cassette {
     pub fn new() -> Cassette {
         Cassette {

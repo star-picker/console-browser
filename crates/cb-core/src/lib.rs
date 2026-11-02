@@ -1,4 +1,8 @@
 //! cb-core: 契约（错误、信封、工具表）+ 页面获取管道。
+//!
+//! CbError 故意做成富值类型（带结构化 ErrorBody，直接落进 JSON 信封），
+//! 不套 Box：多一次分配换更厚的错误信息，这里划算。
+#![allow(clippy::result_large_err)]
 
 pub mod envelope;
 pub mod error;

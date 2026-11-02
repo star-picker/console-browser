@@ -112,7 +112,7 @@ impl Document {
                 },
             };
             let score = len as f64 * (1.0 - self.link_density(el)) + bonus;
-            if best.as_ref().map_or(true, |(b, _)| score > *b) {
+            if best.as_ref().is_none_or(|(b, _)| score > *b) {
                 best = Some((score, el));
             }
         }

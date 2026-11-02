@@ -8,7 +8,7 @@
 - [x] NASM 工具链就位（BoringSSL 汇编编译所需）
 - [x] 本地 git 库 + 台账策略（`docs/PROGRESS.md`）
 - [x] 设计规格 + ADR 0001（TLS 指纹选型）
-- [ ] `.gitattributes` 统一换行，消掉 CRLF 噪音
+- [x] `.gitattributes` 统一换行，消掉 CRLF 噪音
 
 ## 内核（Kernel）
 
@@ -16,21 +16,21 @@
 - [x] T3 cb-net：指纹 profile + 回放/录制 + 缓存键归一化（2 测试绿）
 - [x] T4 cb-dom：解析 + CSS 选择 + 正文容器评分
 - [x] T4 cb-extract：正文 → markdown（标题/列表/表格/代码/引用/图片/链接）+ token 预算（5 测试绿）
-- [ ] T5 fetch 管道：缓存 → 网络 → DOM → 提取 → 存库 → 历史 → 日志
+- [x] T5 fetch 管道：缓存 → 网络 → DOM → 提取 → 存库 → 历史 → 日志
 
 ## 接口（Interfaces）
 
-- [ ] T5 `cb fetch <url> --to md --json`：JSON 信封 + 退出码
-- [ ] T6 ToolSpec 注册表（CLI / MCP / agent 共用一份 schema）
-- [ ] T6 `cb selftest --json`：8 项机器可读检查
-- [ ] T7 cb-mcp stdio：browse_url / search_web / history_search / selftest_status
-- [ ] T7 Hermes 接入文档 `docs/hermes-setup.md`
+- [x] T5 `cb fetch <url> --to md --json`：JSON 信封 + 退出码
+- [x] T6 ToolSpec 注册表（CLI / MCP / agent 共用一份 schema）
+- [x] T6 `cb selftest --json`：8 项机器可读检查
+- [x] T7 cb-mcp stdio：browse_url / history_search / selftest_status（search_web 延到 M2）
+- [x] T7 Hermes 接入文档 `docs/hermes-setup.md`
 
 ## 质量（Quality）
 
-- [ ] T8 测试台：fixture 服务 + e2e 脚本 + CI（离线）
-- [ ] T8 README：安装、Hermes 配置、三个 `cb fetch` 例子
-- [ ] T8 `cargo fmt --check` / `clippy -D warnings` 全绿
+- [x] T8 测试台：cassette 回放 + e2e 脚本 + CI（离线）
+- [x] T8 README：安装、Hermes 配置、三个 `cb fetch` 例子
+- [x] T8 `cargo fmt --check` / `clippy -D warnings` 全绿
 
 ## M2 搜索与 AI
 
