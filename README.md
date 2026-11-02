@@ -4,6 +4,20 @@
 
 不依赖任何现有浏览器内核。自己的 HTML 解析、正文提取、TLS/HTTP2 指纹冒充。
 
+## 快速开始 · Quick start
+
+```powershell
+cb                      # 交互模式（双击 exe 也是这个）/ interactive shell (double-click does this)
+cb fetch https://example.com/a
+cb fetch https://example.com/a --help   # 每条命令都有独立帮助 / every command has its own help
+```
+
+交互模式里直接敲命令，不用重开进程：`fetch …`、`tools`、`db stats`、`lang en`、`help`、`exit`。
+In the shell you type commands without restarting: `fetch …`, `tools`, `db stats`, `lang en`, `help`, `exit`.
+
+界面语言 / UI language：`--lang zh|en`，或环境变量 `CB_LANG`，否则跟随系统区域；选择会存进本地库。
+Pick with `--lang zh|en`, or `CB_LANG`, otherwise the system locale; the choice is persisted.
+
 ## 现在能用什么（M1）
 
 ```
@@ -11,7 +25,8 @@ cb fetch <url> [--to md|html|text|json] [--max-tokens N] [--scope CSS]
                [--profile chrome|firefox|safari] [--fresh]
                [--replay FILE] [--record FILE] [--out FILE] [--json]
 cb history [--query Q] [--limit N]
-cb db prune|stats   # 按保留期清理 / 各表行数
+cb db prune|stats|schema   # 清理 / 行数 / 表结构
+cb shell                    # 交互模式（不带参数运行等价）
 cb tools            # 能力表（CLI / MCP / agent 共用一份 schema）
 cb selftest         # 八项自检，机器可读
 cb mcp serve        # MCP stdio 服务端（--replay 可离线回放）
@@ -63,6 +78,8 @@ cargo build --workspace
 cargo test --workspace
 scripts/cb-e2e.ps1        # 端到端冒烟，给外部自动化用
 ```
+
+数据库：位置、表结构、保留期、怎么查 —— 见 [docs/database.md](docs/database.md)。
 
 文档：任务清单 [docs/TASKS.md](docs/TASKS.md) · 进度台账 [docs/PROGRESS.md](docs/PROGRESS.md) · 设计规格 [docs/superpowers/specs/console-browser-design.md](docs/superpowers/specs/console-browser-design.md) · ADR [docs/adr/0001-tls-impersonation.md](docs/adr/0001-tls-impersonation.md)
 

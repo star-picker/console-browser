@@ -135,6 +135,13 @@ pub struct PruneReport {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TableInfo {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub rows: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Counts {
     pub pages: i64,
     pub cache_entries: i64,
@@ -383,6 +390,41 @@ impl Store {
             history_deleted,
             logs_deleted,
         })
+    }
+
+    /// 表结构摘要，给 `cb db schema` 用。
+    pub fn schema_summary(&self) -> Result<Vec<TableInfo>> {
+        let conn = self.lock();
+        let mut names: Vec<String> = Vec::new();
+        {
+            let mut stmt = conn.prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+            )?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            for row in rows {
+                names.push(row?);
+            }
+        }
+        let mut out = Vec::new();
+        for name in names {
+            let mut columns = Vec::new();
+            let sql = format!("PRAGMA table_info({name})");
+            let mut stmt = conn.prepare(&sql)?;
+            let rows =
+                stmt.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
+            for row in rows {
+                let (col, ty) = row?;
+                columns.push(format!("{col} {ty}"));
+            }
+            let count: i64 =
+                conn.query_row(&format!("SELECT COUNT(*) FROM {name}"), [], |r| r.get(0))?;
+            out.push(TableInfo {
+                name,
+                columns,
+                rows: count,
+            });
+        }
+        Ok(out)
     }
 
     /// 各表行数，给 `cb db stats` 用。
