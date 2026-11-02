@@ -66,7 +66,7 @@
 - [x] T1 cb-extract 结构化 RenderDoc/Block/Span（markdown 链路原样未动，7 golden + 6 新测试全绿）
 - [x] T2 cb-core：FetchOutcome.doc、login::detect_login_wall、needs_login（5 单测 + 2 e2e）
 - [x] T3 cookie jar + store v3（tabs/bookmarks/cookies + SecretBox；DPAPI 留 T12）
-- [ ] T4 cb-render 布局引擎
+- [x] T4 cb-render 布局引擎（折行/CJK/表格/代码/链接索引，8 测试）
 - [ ] T5 cb-tui 状态机与键位
 - [ ] T6 全屏屏幕与视图（alternate screen + RAII）
 - [ ] T7 加载/错误页/需登录页
