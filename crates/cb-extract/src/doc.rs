@@ -202,9 +202,6 @@ fn code_fence_language(el: ElementRef<'_>) -> String {
     String::new()
 }
 
-const CONTAINER_TAGS: &[&str] = &[
-    "body", "main", "article", "section", "div", "figure", "details", "dl", "td", "th",
-];
 const LIST_TAGS: &[&str] = &["ul", "ol"];
 
 /// 块级标签真集合：子树里有这些就直接递归，否则整块当行内段落。
