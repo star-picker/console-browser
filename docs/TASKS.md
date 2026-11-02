@@ -67,7 +67,7 @@
 - [x] T2 cb-core：FetchOutcome.doc、login::detect_login_wall、needs_login（5 单测 + 2 e2e）
 - [x] T3 cookie jar + store v3（tabs/bookmarks/cookies + SecretBox；DPAPI 留 T12）
 - [x] T4 cb-render 布局引擎（折行/CJK/表格/代码/链接索引，8 测试）
-- [ ] T5 cb-tui 状态机与键位
+- [x] T5 cb-tui 状态机与键位（mode/action/keymap/editbuffer/app/route，24 测试）
 - [ ] T6 全屏屏幕与视图（alternate screen + RAII）
 - [ ] T7 加载/错误页/需登录页
 - [ ] T8 链接焦点/查找/链接列表

@@ -29,7 +29,11 @@ pub struct Styled {
 
 impl Styled {
     fn plain(text: impl Into<String>) -> Styled {
-        Styled { text: text.into(), style: Style::Normal, link: None }
+        Styled {
+            text: text.into(),
+            style: Style::Normal,
+            link: None,
+        }
     }
 }
 
@@ -78,7 +82,11 @@ fn span_style(style: &SpanStyle) -> Style {
 fn to_styled(spans: &[Span]) -> Vec<Styled> {
     spans
         .iter()
-        .map(|s| Styled { text: s.text.clone(), style: span_style(&s.style), link: s.link })
+        .map(|s| Styled {
+            text: s.text.clone(),
+            style: span_style(&s.style),
+            link: s.link,
+        })
         .collect()
 }
 
@@ -107,9 +115,19 @@ fn wrap_cells(cells: &[Styled], width: usize, prefix: &str, indent: &str) -> Vec
         }
     };
     start_line(&mut cur, true);
-    cur_width = if first_line { prefix_width } else { indent_width };
+    cur_width = if first_line {
+        prefix_width
+    } else {
+        indent_width
+    };
 
-    let budget = width.saturating_sub(if first_line { prefix_width } else { indent_width }).max(4);
+    let budget = width
+        .saturating_sub(if first_line {
+            prefix_width
+        } else {
+            indent_width
+        })
+        .max(4);
     let mut used = 0usize;
 
     for cell in cells {
@@ -117,7 +135,11 @@ fn wrap_cells(cells: &[Styled], width: usize, prefix: &str, indent: &str) -> Vec
         for ch in cell.text.chars() {
             if ch == '\n' {
                 if !buf.is_empty() {
-                    cur.push(Styled { text: std::mem::take(&mut buf), style: cell.style, link: cell.link });
+                    cur.push(Styled {
+                        text: std::mem::take(&mut buf),
+                        style: cell.style,
+                        link: cell.link,
+                    });
                 }
                 lines.push(std::mem::take(&mut cur));
                 first_line = false;
@@ -134,7 +156,11 @@ fn wrap_cells(cells: &[Styled], width: usize, prefix: &str, indent: &str) -> Vec
                 if !buf.is_empty() {
                     let text = std::mem::take(&mut buf);
                     cur_width += text.width();
-                    cur.push(Styled { text, style: cell.style, link: cell.link });
+                    cur.push(Styled {
+                        text,
+                        style: cell.style,
+                        link: cell.link,
+                    });
                 }
                 lines.push(std::mem::take(&mut cur));
                 first_line = false;
@@ -156,7 +182,11 @@ fn wrap_cells(cells: &[Styled], width: usize, prefix: &str, indent: &str) -> Vec
         }
         if !buf.is_empty() {
             cur_width += buf.width();
-            cur.push(Styled { text: buf, style: cell.style, link: cell.link });
+            cur.push(Styled {
+                text: buf,
+                style: cell.style,
+                link: cell.link,
+            });
         }
     }
     let _ = cur_width;
@@ -165,13 +195,27 @@ fn wrap_cells(cells: &[Styled], width: usize, prefix: &str, indent: &str) -> Vec
 }
 
 fn text_block(text: &str, style: Style, width: usize) -> Vec<Line> {
-    wrap_cells(&[Styled { text: text.to_string(), style, link: None }], width, "", "")
+    wrap_cells(
+        &[Styled {
+            text: text.to_string(),
+            style,
+            link: None,
+        }],
+        width,
+        "",
+        "",
+    )
 }
 
 impl Layout {
     pub fn new(doc: &RenderDoc, width: u16) -> Layout {
         let width = width.max(8);
-        let mut layout = Layout { width, lines: Vec::new(), link_lines: HashMap::new(), lower_lines: Vec::new() };
+        let mut layout = Layout {
+            width,
+            lines: Vec::new(),
+            link_lines: HashMap::new(),
+            lower_lines: Vec::new(),
+        };
         let mut blocks_out: Vec<Line> = Vec::new();
         for block in &doc.blocks {
             layout.render_block(block, width as usize, &mut blocks_out);
@@ -202,18 +246,36 @@ impl Layout {
             Block::Paragraph { spans } => {
                 out.extend(wrap_cells(&to_styled(spans), width, "", ""));
             }
-            Block::ListItem { depth, marker, spans } => {
+            Block::ListItem {
+                depth,
+                marker,
+                spans,
+            } => {
                 let prefix = format!("{}{}", "  ".repeat(*depth as usize), marker);
-                let indent = format!("{}{}", "  ".repeat(*depth as usize), " ".repeat(marker.width().max(2)));
+                let indent = format!(
+                    "{}{}",
+                    "  ".repeat(*depth as usize),
+                    " ".repeat(marker.width().max(2))
+                );
                 out.extend(wrap_cells(&to_styled(spans), width, &prefix, &indent));
             }
             Block::Code { lang, lines } => {
                 if !lang.is_empty() {
-                    out.push(Line { cells: vec![Styled { text: format!("[{lang}]"), style: Style::Dim, link: None }] });
+                    out.push(Line {
+                        cells: vec![Styled {
+                            text: format!("[{lang}]"),
+                            style: Style::Dim,
+                            link: None,
+                        }],
+                    });
                 }
                 for code_line in lines {
                     out.push(Line {
-                        cells: vec![Styled { text: code_line.clone(), style: Style::Code, link: None }],
+                        cells: vec![Styled {
+                            text: code_line.clone(),
+                            style: Style::Code,
+                            link: None,
+                        }],
                     });
                 }
             }
@@ -224,7 +286,13 @@ impl Layout {
                     self.render_block(child, inner_width, &mut inner);
                 }
                 for line in inner {
-                    let mut quoted = Line { cells: vec![Styled { text: "│ ".to_string(), style: Style::Dim, link: None }] };
+                    let mut quoted = Line {
+                        cells: vec![Styled {
+                            text: "│ ".to_string(),
+                            style: Style::Dim,
+                            link: None,
+                        }],
+                    };
                     for cell in line.cells {
                         quoted.push(cell);
                     }
@@ -232,7 +300,9 @@ impl Layout {
                 }
             }
             Block::Table { head, rows } => {
-                let cols = head.len().max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
+                let cols = head
+                    .len()
+                    .max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
                 if cols == 0 {
                     return;
                 }
@@ -241,18 +311,35 @@ impl Layout {
                     let mut wrapped: Vec<Vec<Line>> = Vec::new();
                     for i in 0..cols {
                         let text = cells.get(i).cloned().unwrap_or_default();
-                        wrapped.push(wrap_cells(&[Styled { text, style, link: None }], share, "", ""));
+                        wrapped.push(wrap_cells(
+                            &[Styled {
+                                text,
+                                style,
+                                link: None,
+                            }],
+                            share,
+                            "",
+                            "",
+                        ));
                     }
                     let height = wrapped.iter().map(|c| c.len()).max().unwrap_or(1);
                     for row_idx in 0..height {
                         let mut line = Line::default();
                         for (i, col) in wrapped.iter().enumerate() {
                             if i > 0 {
-                                line.push(Styled { text: " │ ".to_string(), style: Style::Dim, link: None });
+                                line.push(Styled {
+                                    text: " │ ".to_string(),
+                                    style: Style::Dim,
+                                    link: None,
+                                });
                             }
                             let text = col.get(row_idx).map(|l| l.text()).unwrap_or_default();
                             let pad = share.saturating_sub(text.width());
-                            line.push(Styled { text: format!("{text}{}", " ".repeat(pad)), style, link: None });
+                            line.push(Styled {
+                                text: format!("{text}{}", " ".repeat(pad)),
+                                style,
+                                link: None,
+                            });
                         }
                         out.push(line);
                     }
@@ -270,15 +357,29 @@ impl Layout {
                 }
             }
             Block::Rule => {
-                out.push(Line { cells: vec![Styled { text: "─".repeat(width.min(80)), style: Style::Rule, link: None }] });
+                out.push(Line {
+                    cells: vec![Styled {
+                        text: "─".repeat(width.min(80)),
+                        style: Style::Rule,
+                        link: None,
+                    }],
+                });
             }
             Block::Image { alt, url } => {
-                let label = if alt.is_empty() { format!("[image] {url}") } else { format!("[image: {alt}] {url}") };
+                let label = if alt.is_empty() {
+                    format!("[image] {url}")
+                } else {
+                    format!("[image: {alt}] {url}")
+                };
                 for line in text_block(&label, Style::Dim, width) {
                     out.push(line);
                 }
             }
-            Block::Notice { level, title, spans } => {
+            Block::Notice {
+                level,
+                title,
+                spans,
+            } => {
                 let marker = match level {
                     NoticeLevel::Info => "[i] ",
                     NoticeLevel::Warn => "[!] ",
@@ -289,8 +390,18 @@ impl Layout {
                     NoticeLevel::Warn => Style::NoticeWarn,
                     NoticeLevel::Error => Style::NoticeError,
                 };
-                let heading = if title.is_empty() { marker.to_string() } else { format!("{marker}{title}") };
-                out.push(Line { cells: vec![Styled { text: heading, style, link: None }] });
+                let heading = if title.is_empty() {
+                    marker.to_string()
+                } else {
+                    format!("{marker}{title}")
+                };
+                out.push(Line {
+                    cells: vec![Styled {
+                        text: heading,
+                        style,
+                        link: None,
+                    }],
+                });
                 out.extend(wrap_cells(&to_styled(spans), width, "    ", "    "));
             }
         }
@@ -322,11 +433,17 @@ mod tests {
     use cb_extract::RenderDoc;
 
     fn doc(blocks: Vec<Block>) -> RenderDoc {
-        RenderDoc { title: "t".to_string(), blocks, links: Vec::new() }
+        RenderDoc {
+            title: "t".to_string(),
+            blocks,
+            links: Vec::new(),
+        }
     }
 
     fn para(text: &str) -> Block {
-        Block::Paragraph { spans: vec![Span::normal(text)] }
+        Block::Paragraph {
+            spans: vec![Span::normal(text)],
+        }
     }
 
     #[test]
@@ -335,7 +452,12 @@ mod tests {
         let layout = Layout::new(&d, 40);
         assert!(layout.total_lines() > 1);
         for line in &layout.lines {
-            assert!(line.width() <= 40, "line too wide: {} ({})", line.width(), line.text());
+            assert!(
+                line.width() <= 40,
+                "line too wide: {} ({})",
+                line.width(),
+                line.text()
+            );
         }
     }
 
@@ -365,17 +487,27 @@ mod tests {
             rows: vec![vec!["a".to_string(), "1".to_string()]],
         }]);
         let layout = Layout::new(&d, 40);
-        let head_line = layout.lines.iter().find(|l| l.text().contains("Key")).expect("head");
+        let head_line = layout
+            .lines
+            .iter()
+            .find(|l| l.text().contains("Key"))
+            .expect("head");
         assert!(head_line.cells.iter().any(|c| c.style == Style::Bold));
         assert!(layout.lines.iter().any(|l| l.text().starts_with('─')));
     }
 
     #[test]
     fn links_map_to_their_first_line() {
-        let link = Span { text: "click".to_string(), style: SpanStyle::Normal, link: Some(7) };
+        let link = Span {
+            text: "click".to_string(),
+            style: SpanStyle::Normal,
+            link: Some(7),
+        };
         let d = RenderDoc {
             title: "t".to_string(),
-            blocks: vec![Block::Paragraph { spans: vec![Span::normal("see "), link] }],
+            blocks: vec![Block::Paragraph {
+                spans: vec![Span::normal("see "), link],
+            }],
             links: Vec::new(),
         };
         let layout = Layout::new(&d, 40);
@@ -404,12 +536,18 @@ mod tests {
     #[test]
     fn quote_prefixes_every_line() {
         let d = doc(vec![Block::Quote {
-            blocks: vec![para("quoted text that will wrap because it is fairly long indeed")],
+            blocks: vec![para(
+                "quoted text that will wrap because it is fairly long indeed",
+            )],
         }]);
         let layout = Layout::new(&d, 24);
         for line in &layout.lines {
             if !line.text().trim().is_empty() {
-                assert!(line.text().starts_with('│'), "missing quote prefix: {}", line.text());
+                assert!(
+                    line.text().starts_with('│'),
+                    "missing quote prefix: {}",
+                    line.text()
+                );
             }
         }
     }

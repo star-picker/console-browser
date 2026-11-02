@@ -403,11 +403,12 @@ pub fn notice_doc(
     level: NoticeLevel,
     message: impl Into<String>,
 ) -> RenderDoc {
+    let title = title.into();
     RenderDoc {
-        title: title.into(),
+        title: title.clone(),
         blocks: vec![Block::Notice {
             level,
-            title: String::new(),
+            title,
             spans: vec![Span::normal(message.into())],
         }],
         links: Vec::new(),
