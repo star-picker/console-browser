@@ -93,7 +93,6 @@ enum UiEvent {
         answer: String,
     },
     CommandOutput {
-        tab: usize,
         line: String,
         output: String,
     },
@@ -308,11 +307,7 @@ fn apply_event(app: &mut App, ev: UiEvent) {
         }
         UiEvent::History(entries) => app.open_history_overlay(&entries),
         UiEvent::AiAnswer { question, answer } => app.set_ai_answer(&question, &answer),
-        UiEvent::CommandOutput {
-            tab: _,
-            line,
-            output,
-        } => {
+        UiEvent::CommandOutput { line, output } => {
             let head: String = output.chars().take(400).collect();
             app.set_status(format!("{line} → {head}"));
         }
@@ -506,11 +501,8 @@ fn handle_req(
                 }
                 Err(e) => format!("command failed: {e}"),
             };
-            let _ = tx.send(UiEvent::CommandOutput {
-                tab,
-                line,
-                output: text,
-            });
+            let _ = tab;
+            let _ = tx.send(UiEvent::CommandOutput { line, output: text });
         }
         Req::AskAi { question, context } => {
             let prompt = format!(
@@ -629,11 +621,11 @@ fn load_session(ctx: &Ctx) -> Option<Vec<crate::app::TabSnapshot>> {
     for row in rows {
         let nav: Vec<String> =
             serde_json::from_str(&row.nav_json).unwrap_or_else(|_| vec![row.url.clone()]);
-        let nav_cursor = row
-            .nav_json
-            .is_empty()
-            .then_some(0usize)
-            .unwrap_or_else(|| nav.len().saturating_sub(1));
+        let nav_cursor = if row.nav_json.is_empty() {
+            0usize
+        } else {
+            nav.len().saturating_sub(1)
+        };
         snapshots.push(crate::app::TabSnapshot {
             slot: row.slot.max(0) as usize,
             url: row.url,

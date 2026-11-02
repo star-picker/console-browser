@@ -94,7 +94,8 @@ fn char_width(ch: char) -> usize {
     ch.width().unwrap_or(0)
 }
 
-/// 把一段带样式的文本按显示宽度折行；break_on_space=true 时优先在空格处断。
+/// 把一段带样式的文本按显示宽度折行（优先在空白处断）。
+#[allow(unused_assignments)]
 fn wrap_cells(cells: &[Styled], width: usize, prefix: &str, indent: &str) -> Vec<Line> {
     let width = width.max(8);
     let mut lines: Vec<Line> = Vec::new();
@@ -105,7 +106,7 @@ fn wrap_cells(cells: &[Styled], width: usize, prefix: &str, indent: &str) -> Vec
     let mut first_line = true;
     let mut pending_space = false;
 
-    let mut start_line = |line: &mut Line, first: bool| {
+    let start_line = |line: &mut Line, first: bool| {
         if first {
             if !prefix.is_empty() {
                 line.push(Styled::plain(prefix));
@@ -172,11 +173,7 @@ fn wrap_cells(cells: &[Styled], width: usize, prefix: &str, indent: &str) -> Vec
                     continue;
                 }
             }
-            if ch == ' ' {
-                pending_space = true;
-            } else {
-                pending_space = false;
-            }
+            pending_space = ch == ' ';
             buf.push(ch);
             used += w;
         }

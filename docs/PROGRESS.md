@@ -64,6 +64,15 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### M3-UI · 收尾：DPAPI、clippy 归零、目标达成
+
+- **cookie 加密**：`SecretBox` 增 `DpapiBox`（Windows，`CryptProtectData/CryptUnprotectData` + `CRYPTPROTECT_UI_FORBIDDEN`），`default_secret_box()` 在 Windows 自动用它，其它平台退回 `PlainBox`；失败时回落明文标记，不丢数据。2 条测试（DPAPI roundtrip 且密文不含明文、能读旧的 plain 标记数据）。
+- **clippy 归零**：`cargo clippy --workspace --all-targets` 零告警（修掉未使用字段、过多参数、可简化布尔、items-after-test-module 等；顺带发现并修正 `mouse: !no_mouse && !no_mouse` 这处真实笔误）。
+- **回归**：`cargo test --workspace` **165 passed**；`cargo fmt --check` 通过。
+- Ruling: 大文件（app.rs 等）一律用 read/edit 定点改，不做整文件覆盖 —— 这轮有两次整文件写入把 app.rs 截断，靠 git 还原才救回 —— 代价：改大文件要多次小编辑。
+- Ruling: `--plain` 做成 `cb plain <url>` 子命令而不是全局开关 —— 避免与 `--json` 组合歧义 —— 代价：与计划里的字面写法不同，文档已注明。
+- 诚实缺口：CDP 那条链路用 mock/纯函数测过（解析、粘贴、目标选择、过期过滤），**没有在自动化里真的拉起 Edge 登录一次**；TUI 交互用 TestBackend 渲染 + 非 TTY e2e 覆盖，真终端手感需人工验一次。
+
 ### M3-UI · T11/T12 落地 + 输入法修复（回应实机反馈）
 
 - **实机反馈修复**：输入框打不出冒号/大写 —— 之前只接受「无修饰键」的字符，Shift 被误杀。新增 `text_input_char`（放行 Shift，只排除 Ctrl/Alt），有测试（`:`、`G` 可输入；Ctrl-W/Alt-1 不输入）。

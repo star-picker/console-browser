@@ -369,6 +369,8 @@ impl NetClient {
                     body,
                     final_url,
                 };
+                // 响应里的 Set-Cookie 落到 jar（会话复用就靠这一步）
+                self.store_response_cookies(&req.url, &out.headers);
                 if let Some(cassette) = self
                     .record
                     .lock()

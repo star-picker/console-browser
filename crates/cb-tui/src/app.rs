@@ -32,6 +32,7 @@ pub struct PageView {
 }
 
 impl PageView {
+    #[allow(clippy::too_many_arguments)]
     pub fn ready(
         url: impl Into<String>,
         final_url: impl Into<String>,
@@ -156,6 +157,12 @@ pub struct Tab {
     pub focus: Option<u32>,
     pub find: Option<FindState>,
     pub gen: u64,
+}
+
+impl Default for Tab {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Tab {
@@ -319,7 +326,6 @@ pub struct App {
     pub ascii: bool,
     /// 关闭颜色（NO_COLOR / mono 主题）。
     pub no_color: bool,
-    pending_gen: u64,
 }
 
 impl Default for App {
@@ -347,7 +353,6 @@ impl App {
             trace: Vec::new(),
             ascii: false,
             no_color: false,
-            pending_gen: 0,
         }
     }
 
@@ -418,7 +423,7 @@ impl App {
                             }
                         };
                         self.mode = Mode::Browse;
-                        return self.apply(action);
+                        self.apply(action)
                     }
                     crate::route::Target::Command(line) => {
                         self.mode = Mode::Browse;
@@ -643,7 +648,7 @@ impl App {
     }
 
     pub fn scroll_by(&mut self, delta: i32) {
-        let visible = (self.height as u16).saturating_sub(3);
+        let visible = self.height.saturating_sub(3);
         let tab = self.tab_mut();
         let max = tab.max_scroll().saturating_sub(visible);
         let next = (tab.scroll as i32 + delta).clamp(0, max as i32);
@@ -665,7 +670,7 @@ impl App {
     }
 
     pub fn scroll_bottom(&mut self) {
-        let visible = (self.height as u16).saturating_sub(3);
+        let visible = self.height.saturating_sub(3);
         let tab = self.tab_mut();
         let max = tab.max_scroll().saturating_sub(visible);
         tab.scroll = max;
@@ -998,7 +1003,7 @@ impl App {
         if let Some(overlay) = &mut self.overlay {
             overlay.items = entries
                 .iter()
-                .map(|(ts, title, url)| OverlayItem {
+                .map(|(_ts, title, url)| OverlayItem {
                     label: if title.is_empty() {
                         url.clone()
                     } else {
@@ -1078,6 +1083,274 @@ impl App {
             .map(|i| i.target.clone());
         self.mode = Mode::Browse;
         target
+    }
+}
+impl App {
+    /// 执行一个动作；需要 IO 时返回 Effect。
+    pub fn apply(&mut self, action: Action) -> Option<Effect> {
+        match action {
+            Action::FocusOmnibox => {
+                self.mode = Mode::Input(InputKind::Omnibox);
+                let url = self.tab().url().to_string();
+                self.omnibox.set_text(url);
+                None
+            }
+            Action::FocusFind => {
+                self.mode = Mode::Input(InputKind::Find);
+                self.omnibox.clear();
+                None
+            }
+            Action::FocusCommand => {
+                self.mode = Mode::Input(InputKind::Command);
+                self.omnibox.clear();
+                None
+            }
+            Action::PasteCookies => {
+                self.mode = Mode::Input(InputKind::PasteCookies);
+                self.omnibox.clear();
+                None
+            }
+            Action::Submit => self.submit_input(),
+            Action::CancelInput => {
+                if matches!(self.mode, Mode::Browse) {
+                    self.cancel_load();
+                    self.set_status("cancelled");
+                } else {
+                    self.mode = Mode::Browse;
+                    let url = self.tab().url().to_string();
+                    self.omnibox.set_text(url);
+                }
+                None
+            }
+            Action::ClearInput => {
+                self.omnibox.clear();
+                None
+            }
+            Action::EditBackspace => {
+                self.omnibox.backspace();
+                None
+            }
+            Action::EditWordBackspace => {
+                self.omnibox.delete_word();
+                None
+            }
+            Action::EditLeft => {
+                self.omnibox.left();
+                None
+            }
+            Action::EditRight => {
+                self.omnibox.right();
+                None
+            }
+            Action::EditHome => {
+                self.omnibox.home();
+                None
+            }
+            Action::EditEnd => {
+                self.omnibox.end();
+                None
+            }
+            Action::HistoryPrev => {
+                self.omnibox.history_prev();
+                None
+            }
+            Action::HistoryNext => {
+                self.omnibox.history_next();
+                None
+            }
+            Action::Open(url) => Some(self.navigate(&url)),
+            Action::Back => self.back(),
+            Action::Forward => self.forward(),
+            Action::Reload => {
+                self.set_status("reload");
+                self.reload()
+            }
+            Action::Home => {
+                self.mode = Mode::Input(InputKind::Omnibox);
+                self.omnibox.clear();
+                None
+            }
+            Action::ScrollDown(n) => {
+                self.scroll_by(n.max(1));
+                None
+            }
+            Action::ScrollUp(n) => {
+                self.scroll_by(-n.max(1));
+                None
+            }
+            Action::PageDown => {
+                self.page_down();
+                None
+            }
+            Action::PageTop => {
+                self.scroll_top();
+                None
+            }
+            Action::PageBottom => {
+                self.scroll_bottom();
+                None
+            }
+            Action::FocusNextLink => {
+                self.focus_next_link();
+                None
+            }
+            Action::FocusPrevLink => {
+                self.focus_prev_link();
+                None
+            }
+            Action::OpenFocusedLink { new_tab } => self.open_focused_link(new_tab),
+            Action::ToggleRawView => {
+                self.raw_view = !self.raw_view;
+                self.markdown_view = false;
+                None
+            }
+            Action::ToggleMarkdownView => {
+                self.markdown_view = !self.markdown_view;
+                self.raw_view = false;
+                None
+            }
+            Action::FindNext => {
+                if !self.find_next() {
+                    self.set_status("no find matches");
+                }
+                None
+            }
+            Action::FindPrev => {
+                if !self.find_prev() {
+                    self.set_status("no find matches");
+                }
+                None
+            }
+            Action::TabNew => {
+                self.new_tab();
+                None
+            }
+            Action::TabClose => {
+                self.close_tab();
+                None
+            }
+            Action::TabNext => {
+                self.next_tab();
+                None
+            }
+            Action::TabPrev => {
+                if self.tabs.len() > 1 {
+                    let prev = if self.active == 0 {
+                        self.tabs.len() - 1
+                    } else {
+                        self.active - 1
+                    };
+                    self.select_tab(prev);
+                }
+                None
+            }
+            Action::TabSelect(idx) => {
+                self.select_tab(idx);
+                None
+            }
+            Action::ToggleHelp => {
+                self.open_overlay(OverlayKind::Help);
+                None
+            }
+            Action::ToggleHistory => {
+                self.open_overlay(OverlayKind::History);
+                Some(Effect::LoadHistory)
+            }
+            Action::ToggleLinks => {
+                self.open_links_overlay();
+                None
+            }
+            Action::TogglePalette => {
+                self.open_palette_overlay();
+                None
+            }
+            Action::ToggleAi => {
+                self.open_overlay(OverlayKind::Ai);
+                self.mode = Mode::Input(InputKind::AiPrompt);
+                self.omnibox.clear();
+                None
+            }
+            Action::ToggleTrace => {
+                self.open_trace_overlay();
+                None
+            }
+            Action::OverlayUp => {
+                self.overlay_up();
+                None
+            }
+            Action::OverlayDown => {
+                self.overlay_down();
+                None
+            }
+            Action::OverlaySelect => {
+                if let Some(target) = self.overlay_select() {
+                    if target.starts_with("https://") || target.starts_with("http://") {
+                        return Some(self.navigate(&target));
+                    }
+                    if let Some(rest) = target.strip_prefix("action:") {
+                        return Some(Effect::RunPaletteAction(rest.to_string()));
+                    }
+                    if !target.is_empty() {
+                        self.set_status(format!("selected: {target}"));
+                    }
+                }
+                None
+            }
+            Action::OverlayFilter => {
+                self.mode = Mode::Input(InputKind::Find);
+                self.omnibox.clear();
+                None
+            }
+            Action::CloseOverlay => {
+                self.close_overlay();
+                None
+            }
+            Action::OpenHumanAssist => {
+                let url = self.tab().url().to_string();
+                if url.is_empty() {
+                    self.set_status("nothing loaded");
+                    None
+                } else {
+                    Some(Effect::OpenAssist { url })
+                }
+            }
+            Action::ExportMarkdown => {
+                let url = self.tab().url().to_string();
+                Some(Effect::ExportMarkdown { url })
+            }
+            Action::ExportHtml => {
+                let url = self.tab().url().to_string();
+                Some(Effect::ExportHtml { url })
+            }
+            Action::CopyUrl => {
+                let url = self.tab().url().to_string();
+                Some(Effect::CopyUrl { url })
+            }
+            Action::SwitchLang => {
+                let next = cb_core::i18n::current().next();
+                cb_core::i18n::set(next);
+                let label = format!("lang: {}", next.as_str());
+                self.set_status(label);
+                None
+            }
+            Action::Quit => {
+                self.should_quit = true;
+                None
+            }
+            Action::ForceQuit => {
+                self.should_quit = true;
+                None
+            }
+            Action::MouseClick(_, _) => None,
+            Action::MouseScroll(up) => {
+                if up {
+                    self.scroll_by(-3);
+                } else {
+                    self.scroll_by(3);
+                }
+                None
+            }
+        }
     }
 }
 
@@ -1459,273 +1732,5 @@ mod tests {
             .items
             .iter()
             .all(|i| i.target.starts_with("action:")));
-    }
-}
-impl App {
-    /// 执行一个动作；需要 IO 时返回 Effect。
-    pub fn apply(&mut self, action: Action) -> Option<Effect> {
-        match action {
-            Action::FocusOmnibox => {
-                self.mode = Mode::Input(InputKind::Omnibox);
-                let url = self.tab().url().to_string();
-                self.omnibox.set_text(url);
-                None
-            }
-            Action::FocusFind => {
-                self.mode = Mode::Input(InputKind::Find);
-                self.omnibox.clear();
-                None
-            }
-            Action::FocusCommand => {
-                self.mode = Mode::Input(InputKind::Command);
-                self.omnibox.clear();
-                None
-            }
-            Action::PasteCookies => {
-                self.mode = Mode::Input(InputKind::PasteCookies);
-                self.omnibox.clear();
-                None
-            }
-            Action::Submit => self.submit_input(),
-            Action::CancelInput => {
-                if matches!(self.mode, Mode::Browse) {
-                    self.cancel_load();
-                    self.set_status("cancelled");
-                } else {
-                    self.mode = Mode::Browse;
-                    let url = self.tab().url().to_string();
-                    self.omnibox.set_text(url);
-                }
-                None
-            }
-            Action::ClearInput => {
-                self.omnibox.clear();
-                None
-            }
-            Action::EditBackspace => {
-                self.omnibox.backspace();
-                None
-            }
-            Action::EditWordBackspace => {
-                self.omnibox.delete_word();
-                None
-            }
-            Action::EditLeft => {
-                self.omnibox.left();
-                None
-            }
-            Action::EditRight => {
-                self.omnibox.right();
-                None
-            }
-            Action::EditHome => {
-                self.omnibox.home();
-                None
-            }
-            Action::EditEnd => {
-                self.omnibox.end();
-                None
-            }
-            Action::HistoryPrev => {
-                self.omnibox.history_prev();
-                None
-            }
-            Action::HistoryNext => {
-                self.omnibox.history_next();
-                None
-            }
-            Action::Open(url) => Some(self.navigate(&url)),
-            Action::Back => self.back(),
-            Action::Forward => self.forward(),
-            Action::Reload => {
-                self.set_status("reload");
-                self.reload()
-            }
-            Action::Home => {
-                self.mode = Mode::Input(InputKind::Omnibox);
-                self.omnibox.clear();
-                None
-            }
-            Action::ScrollDown(n) => {
-                self.scroll_by(n.max(1));
-                None
-            }
-            Action::ScrollUp(n) => {
-                self.scroll_by(-n.max(1));
-                None
-            }
-            Action::PageDown => {
-                self.page_down();
-                None
-            }
-            Action::PageTop => {
-                self.scroll_top();
-                None
-            }
-            Action::PageBottom => {
-                self.scroll_bottom();
-                None
-            }
-            Action::FocusNextLink => {
-                self.focus_next_link();
-                None
-            }
-            Action::FocusPrevLink => {
-                self.focus_prev_link();
-                None
-            }
-            Action::OpenFocusedLink { new_tab } => self.open_focused_link(new_tab),
-            Action::ToggleRawView => {
-                self.raw_view = !self.raw_view;
-                self.markdown_view = false;
-                None
-            }
-            Action::ToggleMarkdownView => {
-                self.markdown_view = !self.markdown_view;
-                self.raw_view = false;
-                None
-            }
-            Action::FindNext => {
-                if !self.find_next() {
-                    self.set_status("no find matches");
-                }
-                None
-            }
-            Action::FindPrev => {
-                if !self.find_prev() {
-                    self.set_status("no find matches");
-                }
-                None
-            }
-            Action::TabNew => {
-                self.new_tab();
-                None
-            }
-            Action::TabClose => {
-                self.close_tab();
-                None
-            }
-            Action::TabNext => {
-                self.next_tab();
-                None
-            }
-            Action::TabPrev => {
-                if self.tabs.len() > 1 {
-                    let prev = if self.active == 0 {
-                        self.tabs.len() - 1
-                    } else {
-                        self.active - 1
-                    };
-                    self.select_tab(prev);
-                }
-                None
-            }
-            Action::TabSelect(idx) => {
-                self.select_tab(idx);
-                None
-            }
-            Action::ToggleHelp => {
-                self.open_overlay(OverlayKind::Help);
-                None
-            }
-            Action::ToggleHistory => {
-                self.open_overlay(OverlayKind::History);
-                Some(Effect::LoadHistory)
-            }
-            Action::ToggleLinks => {
-                self.open_links_overlay();
-                None
-            }
-            Action::TogglePalette => {
-                self.open_palette_overlay();
-                None
-            }
-            Action::ToggleAi => {
-                self.open_overlay(OverlayKind::Ai);
-                self.mode = Mode::Input(InputKind::AiPrompt);
-                self.omnibox.clear();
-                None
-            }
-            Action::ToggleTrace => {
-                self.open_trace_overlay();
-                None
-            }
-            Action::OverlayUp => {
-                self.overlay_up();
-                None
-            }
-            Action::OverlayDown => {
-                self.overlay_down();
-                None
-            }
-            Action::OverlaySelect => {
-                if let Some(target) = self.overlay_select() {
-                    if target.starts_with("https://") || target.starts_with("http://") {
-                        return Some(self.navigate(&target));
-                    }
-                    if let Some(rest) = target.strip_prefix("action:") {
-                        return Some(Effect::RunPaletteAction(rest.to_string()));
-                    }
-                    if !target.is_empty() {
-                        self.set_status(format!("selected: {target}"));
-                    }
-                }
-                None
-            }
-            Action::OverlayFilter => {
-                self.mode = Mode::Input(InputKind::Find);
-                self.omnibox.clear();
-                None
-            }
-            Action::CloseOverlay => {
-                self.close_overlay();
-                None
-            }
-            Action::OpenHumanAssist => {
-                let url = self.tab().url().to_string();
-                if url.is_empty() {
-                    self.set_status("nothing loaded");
-                    None
-                } else {
-                    Some(Effect::OpenAssist { url })
-                }
-            }
-            Action::ExportMarkdown => {
-                let url = self.tab().url().to_string();
-                Some(Effect::ExportMarkdown { url })
-            }
-            Action::ExportHtml => {
-                let url = self.tab().url().to_string();
-                Some(Effect::ExportHtml { url })
-            }
-            Action::CopyUrl => {
-                let url = self.tab().url().to_string();
-                Some(Effect::CopyUrl { url })
-            }
-            Action::SwitchLang => {
-                let next = cb_core::i18n::current().next();
-                cb_core::i18n::set(next);
-                let label = format!("lang: {}", next.as_str());
-                self.set_status(label);
-                None
-            }
-            Action::Quit => {
-                self.should_quit = true;
-                None
-            }
-            Action::ForceQuit => {
-                self.should_quit = true;
-                None
-            }
-            Action::MouseClick(_, _) => None,
-            Action::MouseScroll(up) => {
-                if up {
-                    self.scroll_by(-3);
-                } else {
-                    self.scroll_by(3);
-                }
-                None
-            }
-        }
     }
 }

@@ -8,7 +8,7 @@ fn bin() -> std::path::PathBuf {
 #[test]
 fn tui_refuses_to_start_without_a_terminal() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let mut child = StdCommand::new(bin())
+    let child = StdCommand::new(bin())
         .arg("--db")
         .arg(dir.path().join("cb.db"))
         .args(["tui", "--no-mouse"])

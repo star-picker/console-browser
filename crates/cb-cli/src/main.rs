@@ -269,7 +269,7 @@ fn main() {
             }
             let opts = cb_tui::DriverOpts {
                 replay: args.replay.clone(),
-                mouse: !args.no_mouse && !args.no_mouse,
+                mouse: !args.no_mouse,
                 start_url: args.url.clone(),
                 no_restore: args.no_restore,
                 ascii: args.ascii || std::env::var("CB_ASCII").is_ok(),

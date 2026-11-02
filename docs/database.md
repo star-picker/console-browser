@@ -98,6 +98,7 @@ sqlite3 "$env:LOCALAPPDATA\console-browser\cb.db" "select url, title from histor
 - **页面与缓存分表**：`pages` 是「我读过什么」（长期资产），`cache_entries` 是「我还能不能不再请求」（会过期）。
 - **content_sha + markdown 双存**：二次读能只回差量，省 token；也方便以后做 FTS5 全文检索。
 - **凭证边界**：cassette 录制会剔除 `Set-Cookie` / `Authorization`；库里不存 API key（key 只从环境变量/配置文件读）。
+- **cookie 加密**：`cookies.value` 存的是 `SecretBox` 封装后的字节。Windows 默认用 **DPAPI**（同用户可解、跨用户不可读），其它平台退回 `plain:` 标记的明文并在文档里明说；旧数据两种格式都能读。
 
 ### llm_calls — 模型调用账本 / model call ledger（v2）
 

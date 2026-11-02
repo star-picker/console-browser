@@ -344,8 +344,8 @@ where
             let request = format!("{{\"id\":{next_id},\"method\":\"Network.getAllCookies\"}}");
             let _ = ws.send(Message::Text(request.into())).await;
             let wait = tokio::time::timeout(opts.poll, ws.next()).await;
-            if let Ok(Some(Ok(message))) = wait {
-                if let Message::Text(text) = message {
+            if let Ok(Some(Ok(Message::Text(text)))) = wait {
+                {
                     if let Some(cookies) = cookies_from_cdp(&text) {
                         if cookies.len() != latest.len() {
                             on_event(AssistEvent::CookiesUpdated {

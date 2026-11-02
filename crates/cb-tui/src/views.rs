@@ -110,8 +110,7 @@ fn draw_omnibox(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(line), area);
     if focused {
         let x = area.x + 2 + app.omnibox.cursor() as u16;
-        let _ =
-            frame.set_cursor_position(Position::new(x.min(area.right().saturating_sub(1)), area.y));
+        frame.set_cursor_position(Position::new(x.min(area.right().saturating_sub(1)), area.y));
     }
 }
 

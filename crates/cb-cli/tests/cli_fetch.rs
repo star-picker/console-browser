@@ -230,16 +230,16 @@ fn login_wall_is_reported_not_fatal() {
     let out = cmd.assert().success().get_output().clone();
     let v = parse(&out.stdout);
     assert_eq!(v["data"]["login"]["kind"], "login", "{}", v);
-    assert!(
-        v["data"]["login"]["evidence"]
-            .as_array()
-            .expect("evidence")
-            .len()
-            >= 1
-    );
+    assert!(!v["data"]["login"]["evidence"]
+        .as_array()
+        .expect("evidence")
+        .is_empty());
     assert!(
         v["data"].get("doc").is_none(),
         "structured doc must not leak into json: {v}"
     );
-    assert!(v["data"]["login"]["hints"].as_array().expect("hints").len() >= 1);
+    assert!(!v["data"]["login"]["hints"]
+        .as_array()
+        .expect("hints")
+        .is_empty());
 }
