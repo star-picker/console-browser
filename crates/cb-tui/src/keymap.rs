@@ -33,6 +33,7 @@ fn browse_action(key: KeyEvent) -> Option<Action> {
             KeyCode::Char('e') => Some(Action::ExportMarkdown),
             KeyCode::Char('s') => Some(Action::ExportHtml),
             KeyCode::Char('q') => Some(Action::ForceQuit),
+            KeyCode::Char('c') => Some(Action::CancelInput),
             KeyCode::Tab => Some(Action::TabNext),
             KeyCode::Enter => Some(Action::OpenFocusedLink { new_tab: true }),
             _ => None,
@@ -93,6 +94,7 @@ fn browse_action(key: KeyEvent) -> Option<Action> {
 fn input_action(kind: InputKind, key: KeyEvent) -> Option<Action> {
     if is_ctrl(&key) {
         return match key.code {
+            KeyCode::Char('c') => Some(Action::CancelInput),
             KeyCode::Char('u') => Some(Action::ClearInput),
             KeyCode::Char('w') => Some(Action::EditWordBackspace),
             KeyCode::Char('a') => Some(Action::EditHome),
@@ -211,6 +213,10 @@ mod tests {
         assert_eq!(
             key_to_action(mode, ctrl(KeyCode::Char('w'))),
             Some(Action::EditWordBackspace)
+        );
+        assert_eq!(
+            key_to_action(mode, ctrl(KeyCode::Char('c'))),
+            Some(Action::CancelInput)
         );
         assert_eq!(
             key_to_action(mode, key(KeyCode::Up)),

@@ -54,6 +54,22 @@ BROWSE 42% · 120行 · 350tok  → https://聚焦链接    ← 状态栏
 - 需要登录 / 人机验证 → 「需要你」页：`e` 打开人工接力窗口，`c` 粘贴 Cookie。
 - **人工接力**（T11 实现中）：用系统里已有的 Edge/Chrome 以临时 profile + 远程调试端口打开目标页，人登录/过滑块后，cb 通过 CDP 收集 cookie 存进本地 jar 并自动重载。
 
+## 语言 / Language
+
+`--lang zh|en`（或 `CB_LANG`，或交互模式里 `lang zh|en`）：**整体切换**。切换后 TUI 所有文案、状态条、帮助浮层、通知条，以及命令行帮助与 `cb tools` 都只显示所选语言，不再中英拼接。
+
+## 人工接力 · 手动验证清单 / Human assist checklist
+
+自动化只覆盖了 CDP 解析与 cookie 导入的纯函数部分；真实浏览器链路请按下面清单手工过一遍（约 1 分钟）：
+
+1. `cb login https://github.com --keep-open` → 应弹出一个**临时 profile** 的 Edge/Chrome 窗口，并打印 debug port。
+2. 在那个窗口里完成登录；cb 侧应陆续打印 `cookies so far: N`。
+3. 出现会话 cookie 后 cb 收工：打印 `saved N cookies`，`cb cookies list --domain github.com` 能看到名字（**不打印值**）。
+4. `cb fetch https://github.com --to text` 应带上登录态（页面里能看到自己的用户名/头像文字）。
+5. `cb cookies clear --domain github.com` 后再 fetch，应回到未登录状态。
+6. 没有装 Edge/Chrome 的机器：`cb login <url> --manual` 会要求粘贴 `Cookie:` 头，粘贴后同样能进 jar。
+7. TUI 里：登录墙页面按 `e` 走同一链路；按 `c` 走粘贴模式；成功后自动重载当前页。
+
 ## 会话 / Session
 
 退出时把标签页（URL、标题、滚动、导航栈）写进本地 sqlite，下次启动恢复；`cb tui --no-restore` 跳过恢复。

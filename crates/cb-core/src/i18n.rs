@@ -106,6 +106,66 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
     ("selftest.all_ok", "自检全部通过", "selftest passed"),
     ("selftest.failed", "自检有失败项", "selftest has failures"),
     ("export.no_content", "没有内容可导出", "nothing to export"),
+
+    // ---- TUI 文案（单语言切换：选中语言后只显示这一种）----
+    ("ui.placeholder", "输入网址或搜索…", "Type a URL or search…"),
+    ("ui.empty.line1", "直接输入网址或搜索词，回车加载。", "Type a URL or a query, then press Enter."),
+    ("ui.empty.line2", "地址栏输入 ? 或 cb:help 看全部键位；cb:history 看历史。", "Type ? or cb:help in the URL bar to see all keys; cb:history opens history."),
+    ("ui.empty.keys", "导航 l Enter Tab b f r Esc · 标签 Ctrl-T Ctrl-W Alt-1..9 · 工具 Ctrl-H Ctrl-P Ctrl-A : ?", "navigate l Enter Tab b f r Esc · tabs Ctrl-T Ctrl-W Alt-1..9 · tools Ctrl-H Ctrl-P Ctrl-A : ?"),
+    ("ui.mode.browse", "浏览", "BROWSE"),
+    ("ui.mode.url", "地址", "URL"),
+    ("ui.mode.find", "查找", "FIND"),
+    ("ui.mode.command", "命令", "CMD"),
+    ("ui.mode.cookie", "COOKIE", "COOKIE"),
+    ("ui.mode.ai", "AI", "AI"),
+    ("ui.overlay.help", "帮助", "Help"),
+    ("ui.overlay.history", "历史", "History"),
+    ("ui.overlay.links", "链接", "Links"),
+    ("ui.overlay.palette", "命令面板", "Palette"),
+    ("ui.overlay.ai", "AI 面板", "AI"),
+    ("ui.overlay.trace", "日志", "Trace"),
+    ("ui.overlay.empty", "（空）", "(empty)"),
+    ("ui.overlay.close", "Esc 关闭", "Esc closes"),
+    ("ui.loading", "加载中…", "loading…"),
+    ("ui.cancelled", "已取消", "cancelled"),
+    ("ui.newtab", "新标签页", "New tab"),
+    ("ui.needs_login", "需要登录", "login required"),
+    ("ui.no_results", "没有结果", "no results"),
+    ("ui.no_history", "没有历史记录", "no history"),
+    ("ui.no_cookies", "还没有保存 cookie", "no cookies stored"),
+    ("ui.cookies_cleared", "已清空 cookie", "cleared cookies"),
+    ("ui.assist_hint", "按 e 打开人工窗口登录；按 c 粘贴 Cookie", "press e to open the human assist window; press c to paste cookies"),
+    ("ui.status.exported", "已导出", "exported"),
+    ("ui.status.export_failed", "导出失败", "export failed"),
+    ("ui.status.cookies_so_far", "已收集 cookie", "cookies so far"),
+    ("ui.status.assist_window", "人工窗口", "assist window"),
+    ("ui.status.assist_done", "登录完成，已保存 cookie，正在重载", "login captured, cookies saved, reloading"),
+    ("ui.status.assist_none", "人工窗口没拿到 cookie；可改用 c 粘贴", "assist finished without cookies; try c to paste them"),
+    ("ui.status.url", "链接", "url"),
+    ("ui.help.title", "帮助 / 键位", "Help / keys"),
+    ("ui.help.omnibox", "地址栏", "omnibox"),
+    ("ui.help.open", "打开聚焦链接", "open focused link"),
+    ("ui.help.focus", "链接焦点循环", "cycle links"),
+    ("ui.help.nav", "后退 / 前进 / 重载", "back / forward / reload"),
+    ("ui.help.scroll", "滚动 / 翻页 / 顶 / 底", "scroll / page / top / bottom"),
+    ("ui.help.find", "页内查找 / 下一个 / 上一个", "find / next / prev"),
+    ("ui.help.overlays", "历史 / 命令面板 / AI / 链接", "history / palette / AI / links"),
+    ("ui.help.command", "命令行（原 CLI 参数）", "command line (original CLI args)"),
+    ("ui.help.assist", "人工接力 / 粘贴 cookie", "human assist / paste cookies"),
+    ("ui.help.tabs", "新标签 / 关标签 / 切换", "new tab / close tab / switch"),
+    ("ui.help.views", "原始文本 / markdown 视图", "raw text / markdown view"),
+    ("ui.help.export", "导出 md / 导出单文件 html", "export md / export single-file html"),
+    ("ui.help.quit", "复制 URL / 帮助 / 退出", "copy URL / help / quit"),
+    ("ui.search", "搜索", "search"),
+    ("ui.status.cookie_imported", "已导入 cookie", "cookies imported"),
+    ("ui.status.cookie_no_url", "没有可用的 URL，无法导入 cookie", "no url, cannot import cookies"),
+    ("ui.status.command", "命令", "command"),
+    ("ui.status.unknown", "未知", "unknown"),
+    ("ui.status.nothing_loaded", "还没有加载页面", "nothing loaded"),
+    ("ui.status.find_none", "没有匹配", "no find matches"),
+    ("ui.status.reload", "重载", "reload"),
+    ("ui.status.exported_path", "已导出", "exported"),
+    ("ui.status.no_browser", "没有找到 Chromium 浏览器（Edge/Chrome），可用 c 粘贴 Cookie", "no Chromium browser (Edge/Chrome) found; press c to paste cookies"),
 ];
 
 pub fn t(key: &str) -> &'static str {
@@ -140,7 +200,8 @@ mod tests {
             assert!(!zh.trim().is_empty(), "missing zh for {key}");
             assert!(!en.trim().is_empty(), "missing en for {key}");
             // 少数词条两种语言本来就一样（比如提示符），允许白名单。
-            if *key != "shell.prompt" {
+            const SAME_IN_BOTH: &[&str] = &["shell.prompt", "ui.mode.cookie", "ui.mode.ai"];
+            if !SAME_IN_BOTH.contains(key) {
                 assert_ne!(zh, en, "translation not filled for {key}");
             }
         }

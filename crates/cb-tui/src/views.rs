@@ -89,7 +89,7 @@ fn draw_omnibox(frame: &mut Frame, app: &App, area: Rect) {
     };
     let text = app.omnibox.text();
     let shown = if text.is_empty() {
-        "输入网址或搜索… / type a URL or search…".to_string()
+        cb_core::i18n::t("ui.placeholder").to_string()
     } else {
         text.clone()
     };
@@ -146,17 +146,22 @@ fn draw_tabbar(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
     let tab = app.tab();
     let Some(page) = &tab.page else {
-        let hint = TLine::from(vec![
-            TSpan::styled(
-                "按 l 输入地址，或直接输入搜索词。",
+        let hint = vec![
+            TLine::from(vec![TSpan::styled(
+                cb_core::i18n::t("ui.empty.line1"),
+                Style::default().fg(Color::Gray),
+            )]),
+            TLine::from(""),
+            TLine::from(vec![TSpan::styled(
+                cb_core::i18n::t("ui.empty.line2"),
                 Style::default().fg(DIM),
-            ),
-            TSpan::raw("  "),
-            TSpan::styled(
-                "Press l to type, or just type a query.",
+            )]),
+            TLine::from(""),
+            TLine::from(vec![TSpan::styled(
+                cb_core::i18n::t("ui.empty.keys"),
                 Style::default().fg(DIM),
-            ),
-        ]);
+            )]),
+        ];
         frame.render_widget(Paragraph::new(hint).wrap(Wrap { trim: false }), area);
         return;
     };
@@ -234,19 +239,19 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     let tab = app.tab();
     let page = &tab.page;
     let mode_label = match app.mode {
-        Mode::Browse => "BROWSE",
-        Mode::Input(InputKind::Omnibox) => "URL",
-        Mode::Input(InputKind::Find) => "FIND",
-        Mode::Input(InputKind::Command) => "CMD",
-        Mode::Input(InputKind::PasteCookies) => "COOKIE",
-        Mode::Input(InputKind::AiPrompt) => "AI",
+        Mode::Browse => cb_core::i18n::t("ui.mode.browse"),
+        Mode::Input(InputKind::Omnibox) => cb_core::i18n::t("ui.mode.url"),
+        Mode::Input(InputKind::Find) => cb_core::i18n::t("ui.mode.find"),
+        Mode::Input(InputKind::Command) => cb_core::i18n::t("ui.mode.command"),
+        Mode::Input(InputKind::PasteCookies) => cb_core::i18n::t("ui.mode.cookie"),
+        Mode::Input(InputKind::AiPrompt) => cb_core::i18n::t("ui.mode.ai"),
         Mode::Overlay(kind) => match kind {
-            OverlayKind::Help => "HELP",
-            OverlayKind::History => "HISTORY",
-            OverlayKind::Links => "LINKS",
-            OverlayKind::Palette => "PALETTE",
-            OverlayKind::Ai => "AI",
-            OverlayKind::Trace => "TRACE",
+            OverlayKind::Help => cb_core::i18n::t("ui.overlay.help"),
+            OverlayKind::History => cb_core::i18n::t("ui.overlay.history"),
+            OverlayKind::Links => cb_core::i18n::t("ui.overlay.links"),
+            OverlayKind::Palette => cb_core::i18n::t("ui.overlay.palette"),
+            OverlayKind::Ai => cb_core::i18n::t("ui.overlay.ai"),
+            OverlayKind::Trace => cb_core::i18n::t("ui.overlay.trace"),
         },
     };
     let mut left: Vec<TSpan> = vec![TSpan::styled(
@@ -259,9 +264,14 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     if let Some(page) = page {
         let total = page.layout.total_lines().max(1);
         let pct = ((tab.scroll as usize * 100) / total).min(100);
+        let spinner = if app.ascii {
+            ["|", "/", "-", "\\"][(app.tick as usize) % 4]
+        } else {
+            ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][(app.tick as usize) % 10]
+        };
         let state = match &page.status {
             LoadStatus::Idle => "idle".to_string(),
-            LoadStatus::Loading => "loading…".to_string(),
+            LoadStatus::Loading => format!("{spinner} {}", cb_core::i18n::t("ui.loading")),
             LoadStatus::Ready => {
                 if page.cached {
                     "cache".to_string()
@@ -321,12 +331,12 @@ fn draw_overlay(frame: &mut Frame, app: &App, overlay: &OverlayState, area: Rect
         height: height.min(area.height),
     };
     let title = match overlay.kind {
-        OverlayKind::Help => "帮助 / Help (Esc 关闭)",
-        OverlayKind::History => "历史 / History",
-        OverlayKind::Links => "链接 / Links",
-        OverlayKind::Palette => "命令面板 / Palette",
-        OverlayKind::Ai => "AI 面板 / AI",
-        OverlayKind::Trace => "日志 / Trace",
+        OverlayKind::Help => cb_core::i18n::t("ui.help.title"),
+        OverlayKind::History => cb_core::i18n::t("ui.overlay.history"),
+        OverlayKind::Links => cb_core::i18n::t("ui.overlay.links"),
+        OverlayKind::Palette => cb_core::i18n::t("ui.overlay.palette"),
+        OverlayKind::Ai => cb_core::i18n::t("ui.overlay.ai"),
+        OverlayKind::Trace => cb_core::i18n::t("ui.overlay.trace"),
     };
     let border_style = plain_if_mono(app, Style::default().fg(ACCENT));
     let block = Block::bordered()
@@ -346,7 +356,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, overlay: &OverlayState, area: Rect
             let visible = overlay.visible();
             if visible.is_empty() {
                 vec![TLine::from(vec![TSpan::styled(
-                    "(空 / empty)",
+                    cb_core::i18n::t("ui.overlay.empty"),
                     Style::default().fg(DIM),
                 )])]
             } else {
@@ -375,20 +385,21 @@ fn draw_overlay(frame: &mut Frame, app: &App, overlay: &OverlayState, area: Rect
 }
 
 fn help_lines() -> Vec<TLine<'static>> {
+    let t = cb_core::i18n::t;
     let rows = [
-        ("l / Ctrl-L", "地址栏 / omnibox"),
-        ("Enter", "打开聚焦链接 / open focused link"),
-        ("Tab / Shift-Tab", "链接焦点 / cycle links"),
-        ("b / f / r", "后退 / 前进 / 重载"),
-        ("j k Space PgDn PgUp g G", "滚动 / scroll"),
-        ("/ n N", "查找 / find next-prev"),
-        ("Ctrl-H Ctrl-P Ctrl-A L", "历史 / 面板 / AI / 链接"),
-        (":", "命令行 / command line"),
-        ("e / c", "人工接力 / 粘贴 cookie"),
-        ("Ctrl-T / Ctrl-W / Alt-1..9", "标签 / tabs"),
-        ("v / Ctrl-R", "原始文本 / markdown"),
-        ("Ctrl-E / Ctrl-S", "导出 md / html"),
-        ("y / ? / q", "复制 URL / 帮助 / 退出"),
+        ("l / Ctrl-L", t("ui.help.omnibox")),
+        ("Enter", t("ui.help.open")),
+        ("Tab / Shift-Tab", t("ui.help.focus")),
+        ("b / f / r", t("ui.help.nav")),
+        ("j k Space PgDn PgUp g G", t("ui.help.scroll")),
+        ("/ n N", t("ui.help.find")),
+        ("Ctrl-H Ctrl-P Ctrl-A L", t("ui.help.overlays")),
+        (":", t("ui.help.command")),
+        ("e / c", t("ui.help.assist")),
+        ("Ctrl-T / Ctrl-W / Alt-1..9", t("ui.help.tabs")),
+        ("v / Ctrl-R", t("ui.help.views")),
+        ("Ctrl-E / Ctrl-S", t("ui.help.export")),
+        ("y / ? / q", t("ui.help.quit")),
     ];
     rows.iter()
         .map(|(keys, what)| {
@@ -424,6 +435,7 @@ mod tests {
     }
 
     fn render(app: &App) -> String {
+        cb_core::i18n::set(cb_core::i18n::Lang::En);
         render_sized(app, 100, 30)
     }
 
@@ -431,7 +443,8 @@ mod tests {
     fn empty_state_shows_placeholder_and_hints() {
         let app = App::new(100, 30);
         let screen = render(&app);
-        assert!(screen.contains("type a URL or search"), "{screen}");
+        assert!(screen.contains("Type a URL or search"), "{screen}");
+        assert!(screen.contains("cb:help"), "{screen}");
         assert!(
             screen.contains("BROWSE") || screen.contains("URL"),
             "{screen}"
@@ -528,5 +541,28 @@ mod tests {
         let screen = render(&app);
         assert!(screen.contains("hello"), "{screen}");
         let _: Option<Effect> = None;
+    }
+    #[test]
+    fn language_toggle_switches_all_ui_text() {
+        use cb_core::i18n::{self, Lang};
+        let app = App::new(100, 30);
+        i18n::set(Lang::En);
+        let en = render_sized(&app, 100, 30);
+        assert!(en.contains("Type a URL or search"), "{en}");
+        assert!(
+            !en.contains("输入网址"),
+            "english mode must not show chinese: {en}"
+        );
+
+        i18n::set(Lang::Zh);
+        let zh = render_sized(&app, 100, 30);
+        // wide glyphs 的第二个 cell 在 TestBackend 里是空格，匹配前先压掉空白。
+        let zh_compact: String = zh.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(zh_compact.contains("输入网址"), "{zh}");
+        assert!(
+            !zh.contains("Type a URL or search"),
+            "chinese mode must not show english placeholder: {zh}"
+        );
+        i18n::set(Lang::En);
     }
 }

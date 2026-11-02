@@ -72,7 +72,7 @@ fn lang_switch_changes_shell_language() {
 }
 
 #[test]
-fn per_command_help_is_bilingual_and_documented() {
+fn per_command_help_follows_selected_language() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = Command::cargo_bin("cb")
         .expect("bin")
@@ -83,10 +83,17 @@ fn per_command_help_is_bilingual_and_documented() {
         .get_output()
         .stdout
         .clone();
-    let text = String::from_utf8_lossy(&out);
-    assert!(text.contains("取页面并输出"), "chinese about: {text}");
-    assert!(text.contains("Fetch a page"), "english about: {text}");
+    let text = String::from_utf8_lossy(&out).to_string();
+    // 默认（中文环境）帮助只显示一种语言，不再中英拼接。
+    assert!(
+        text.contains("取页面并输出") || text.contains("Fetch a page"),
+        "about missing: {text}"
+    );
     assert!(text.contains("--max-tokens"), "flags listed: {text}");
+    assert!(
+        !(text.contains("取页面并输出") && text.contains("Fetch a page")),
+        "help must be single language: {text}"
+    );
 }
 
 #[test]

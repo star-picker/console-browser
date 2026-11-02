@@ -15,7 +15,7 @@ fn tool_list() -> Value {
         .map(|t| {
             json!({
                 "name": t.name,
-                "description": t.summary,
+                "description": t.summary_for(cb_core::i18n::current()),
                 "inputSchema": t.input_schema,
             })
         })

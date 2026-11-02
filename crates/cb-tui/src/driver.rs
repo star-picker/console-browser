@@ -143,6 +143,7 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
     }
 
     loop {
+        app.on_tick();
         screen.draw(&app)?;
 
         if event::poll(Duration::from_millis(120))? {
@@ -317,7 +318,10 @@ fn apply_event(app: &mut App, ev: UiEvent) {
         }
         UiEvent::Status(msg) => app.set_status(msg),
         UiEvent::AssistDone { saved } => {
-            app.set_status(format!("assist done: {saved} cookies saved; reloading"));
+            app.set_status(format!(
+                "{} ({saved})",
+                cb_core::i18n::t("ui.status.assist_done")
+            ));
         }
     }
 }
@@ -454,11 +458,17 @@ fn handle_req(
                     let path = std::path::PathBuf::from(format!("{safe}.{ext}"));
                     match std::fs::write(&path, content) {
                         Ok(_) => {
-                            let _ =
-                                tx.send(UiEvent::Status(format!("exported {}", path.display())));
+                            let _ = tx.send(UiEvent::Status(format!(
+                                "{} {}",
+                                cb_core::i18n::t("ui.status.exported_path"),
+                                path.display()
+                            )));
                         }
                         Err(e) => {
-                            let _ = tx.send(UiEvent::Status(format!("export failed: {e}")));
+                            let _ = tx.send(UiEvent::Status(format!(
+                                "{}: {e}",
+                                cb_core::i18n::t("ui.status.export_failed")
+                            )));
                         }
                     }
                 }
@@ -473,7 +483,9 @@ fn handle_req(
                 .and_then(|u| u.host_str().map(|h| h.to_string()))
                 .unwrap_or_default();
             if host.is_empty() {
-                let _ = tx.send(UiEvent::Status("cookie import: no url".to_string()));
+                let _ = tx.send(UiEvent::Status(
+                    cb_core::i18n::t("ui.status.cookie_no_url").to_string(),
+                ));
                 return;
             }
             let now = cb_core::now_secs();
@@ -484,7 +496,10 @@ fn handle_req(
                     saved += 1;
                 }
             }
-            let _ = tx.send(UiEvent::Status(format!("cookies imported: {saved}")));
+            let _ = tx.send(UiEvent::Status(format!(
+                "{}: {saved}",
+                cb_core::i18n::t("ui.status.cookie_imported")
+            )));
         }
         Req::History => {
             let rows = ctx.store.list_history(None, 100).unwrap_or_default();
@@ -534,12 +549,16 @@ fn handle_req(
             let result = runtime.block_on(cb_assist::run_assist(&opts, |event| match event {
                 cb_assist::AssistEvent::Started { browser, port } => {
                     let _ = started_tx.send(UiEvent::Status(format!(
-                        "assist window: {} (debug port {port})",
+                        "{}: {} (debug port {port})",
+                        cb_core::i18n::t("ui.status.assist_window"),
                         browser.as_str()
                     )));
                 }
                 cb_assist::AssistEvent::CookiesUpdated { count } => {
-                    let _ = started_tx.send(UiEvent::Status(format!("cookies so far: {count}")));
+                    let _ = started_tx.send(UiEvent::Status(format!(
+                        "{}: {count}",
+                        cb_core::i18n::t("ui.status.cookies_so_far")
+                    )));
                 }
                 cb_assist::AssistEvent::Failed { message } => {
                     let _ = started_tx.send(UiEvent::Status(format!("assist failed: {message}")));
@@ -555,7 +574,7 @@ fn handle_req(
                 }
                 Ok(_) => {
                     let _ = tx.send(UiEvent::Status(
-                        "assist finished without cookies; try c to paste them".to_string(),
+                        cb_core::i18n::t("ui.status.assist_none").to_string(),
                     ));
                 }
                 Err(e) => {
@@ -571,14 +590,17 @@ fn handle_req(
 fn search_doc(query: &str, results: &[cb_core::SearchResult]) -> RenderDoc {
     let mut blocks = vec![Block::Heading {
         level: 1,
-        spans: vec![Span::normal(format!("搜索 / search: {query}"))],
+        spans: vec![Span::normal(format!(
+            "{}: {query}",
+            cb_core::i18n::t("ui.search")
+        ))],
     }];
     let mut links = Vec::new();
     if results.is_empty() {
         blocks.push(Block::Notice {
             level: NoticeLevel::Info,
             title: String::new(),
-            spans: vec![Span::normal("没有结果 / no results".to_string())],
+            spans: vec![Span::normal(cb_core::i18n::t("ui.no_results").to_string())],
         });
     }
     for (idx, result) in results.iter().enumerate() {

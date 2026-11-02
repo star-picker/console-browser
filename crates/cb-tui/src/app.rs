@@ -118,7 +118,7 @@ impl PageView {
                 let mut blocks = Vec::with_capacity(doc.blocks.len() + 1);
                 blocks.push(cb_extract::Block::Notice {
                     level: NoticeLevel::Warn,
-                    title: "需要登录 / login required".to_string(),
+                    title: cb_core::i18n::t("ui.needs_login").to_string(),
                     spans: vec![cb_extract::Span::normal(message)],
                 });
                 blocks.extend(doc.blocks);
@@ -147,7 +147,7 @@ impl PageView {
                 url,
                 status,
                 NoticeLevel::Warn,
-                "需要登录 / login required",
+                cb_core::i18n::t("ui.needs_login"),
                 &message,
             ),
         }
@@ -239,7 +239,7 @@ impl Tab {
                     .map(|e| e.title.clone())
                     .filter(|t| !t.is_empty())
             })
-            .unwrap_or_else(|| "新标签页 / New tab".to_string())
+            .unwrap_or_else(|| cb_core::i18n::t("ui.newtab").to_string())
     }
 
     pub fn total_lines(&self) -> usize {
@@ -364,6 +364,8 @@ pub struct App {
     pub ascii: bool,
     /// 关闭颜色（NO_COLOR / mono 主题）。
     pub no_color: bool,
+    /// 帧计数：加载动画用。
+    pub tick: u64,
 }
 
 impl Default for App {
@@ -391,7 +393,13 @@ impl App {
             trace: Vec::new(),
             ascii: false,
             no_color: false,
+            tick: 0,
         }
+    }
+
+    /// 每帧调用一次，驱动加载动画。
+    pub fn on_tick(&mut self) {
+        self.tick = self.tick.wrapping_add(1);
     }
 
     /// 记一条状态（同时进 trace 环，最多 200 条）。
@@ -527,7 +535,7 @@ impl App {
             url,
             LoadStatus::Loading,
             NoticeLevel::Info,
-            "loading…",
+            cb_core::i18n::t("ui.loading"),
             "",
         ));
         tab.scroll = 0;
@@ -644,7 +652,7 @@ impl App {
             &url,
             LoadStatus::Loading,
             NoticeLevel::Info,
-            "loading…",
+            cb_core::i18n::t("ui.loading"),
             "",
         ));
         Some(Effect::LoadPage {
@@ -924,7 +932,7 @@ impl App {
                 tab.url(),
                 LoadStatus::Idle,
                 NoticeLevel::Info,
-                "已取消 / cancelled",
+                cb_core::i18n::t("ui.cancelled"),
                 "",
             ));
         }

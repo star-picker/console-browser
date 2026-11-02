@@ -17,7 +17,8 @@ cb fetch https://example.com/a --help   # 每条命令都有独立帮助 / every
 In the shell you type commands without restarting: `fetch …`, `tools`, `db stats`, `lang en`, `help`, `exit`.
 
 界面语言 / UI language：`--lang zh|en`，或环境变量 `CB_LANG`，否则跟随系统区域；选择会存进本地库。
-Pick with `--lang zh|en`, or `CB_LANG`, otherwise the system locale; the choice is persisted.
+**切换是整体开关**：选中语言后，CLI 帮助、`cb tools`、TUI 文案/帮助/状态条全部只显示这一种语言，不再中英拼接。
+The switch is global: once chosen, CLI help, `cb tools` and every TUI label render in that single language.
 
 ## 现在能用什么（M1）
 

@@ -7,7 +7,10 @@ use std::sync::OnceLock;
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolSpec {
     pub name: &'static str,
+    /// 中文摘要（默认）。
     pub summary: &'static str,
+    /// English summary（单语言界面切换用）。
+    pub summary_en: &'static str,
     /// fetch | query | meta
     pub kind: &'static str,
     pub input_schema: Value,
@@ -34,6 +37,7 @@ fn browse_url() -> ToolSpec {
     ToolSpec {
         name: "browse_url",
         summary: "取一个网页并返回 AI 可直接阅读的内容（默认 markdown），带缓存与指纹冒充。",
+        summary_en: "Fetch a page and return AI-ready content (markdown by default) with cache and fingerprint impersonation.",
         kind: "fetch",
         input_schema: json!({
             "type": "object",
@@ -54,6 +58,7 @@ fn history_search() -> ToolSpec {
     ToolSpec {
         name: "history_search",
         summary: "在本机浏览历史里搜 URL/标题，返回最近的条目。",
+        summary_en: "Search local browsing history by URL or title.",
         kind: "query",
         input_schema: json!({
             "type": "object",
@@ -75,6 +80,8 @@ fn selftest_status() -> ToolSpec {
     ToolSpec {
         name: "selftest_status",
         summary: "自检：db / fs / net / tls / js / llm / cache / mcp 八项状态，机器可读。",
+        summary_en:
+            "Self-check: db / fs / net / tls / js / llm / cache / mcp status, machine readable.",
         kind: "meta",
         input_schema: json!({"type": "object", "properties": {}}),
         output_schema: json!({
@@ -91,6 +98,7 @@ fn search_web() -> ToolSpec {
     ToolSpec {
         name: "search_web",
         summary: "结构化网页搜索（ddg / bing / gh / arxiv），返回标题、链接与摘要。\nStructured web search (ddg / bing / gh / arxiv) returning title, url and snippet.",
+        summary_en: "Structured web search (ddg / bing / gh / arxiv) returning title, url and snippet.",
         kind: "fetch",
         input_schema: json!({
             "type": "object",
@@ -115,6 +123,16 @@ fn search_web() -> ToolSpec {
                 }}
             }
         }),
+    }
+}
+
+impl ToolSpec {
+    /// 按界面语言取摘要（单语言，不拼接）。
+    pub fn summary_for(&self, lang: crate::i18n::Lang) -> &'static str {
+        match lang {
+            crate::i18n::Lang::Zh => self.summary,
+            crate::i18n::Lang::En => self.summary_en,
+        }
     }
 }
 

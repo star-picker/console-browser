@@ -8,7 +8,7 @@ use cb_core::i18n::{self, Lang};
 use cb_core::{CbError, Ctx, Envelope};
 use cb_net::Profile;
 use cb_store::Store;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use std::io::IsTerminal;
@@ -199,8 +199,149 @@ fn globals_argv(cli: &Cli) -> Vec<String> {
     v
 }
 
+/// 从原始 argv 预扫 --lang：帮助文本本身也要按所选语言输出。
+fn prescan_lang() -> Option<String> {
+    let mut args = std::env::args();
+    while let Some(arg) = args.next() {
+        if arg == "--lang" {
+            return args.next();
+        }
+        if let Some(rest) = arg.strip_prefix("--lang=") {
+            return Some(rest.to_string());
+        }
+    }
+    None
+}
+
+fn has_cjk(text: &str) -> bool {
+    text.chars()
+        .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || ('\u{3000}'..='\u{303f}').contains(&c))
+}
+
+/// 取「中文 · English」中的一侧；没有分隔符时原样返回。
+/// 注意：分隔符可能紧贴全角括号（`）· English`），所以先按裸 `·` 切。
+fn pick_localized(text: &str, lang: Lang) -> String {
+    if let Some((zh, en)) = text.split_once('·') {
+        return if lang == Lang::Zh {
+            zh.trim().to_string()
+        } else {
+            en.trim().to_string()
+        };
+    }
+    if let Some((zh, en)) = text.split_once(" / ") {
+        // 只有左半边确实像中文时才按斜杠切，避免切坏纯英文的斜杠用法。
+        if has_cjk(zh) {
+            return if lang == Lang::Zh {
+                zh.trim().to_string()
+            } else {
+                en.trim().to_string()
+            };
+        }
+    }
+    text.to_string()
+}
+
+/// 逐行筛选多语言块（long_about / after_help）：中文行给 zh，英文行给 en，代码行两边都留。
+fn pick_block(text: &str, lang: Lang) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            out.push(String::new());
+            continue;
+        }
+        // 代码/键位行（缩进开头或以命令词开头）两种语言都保留
+        let code_like =
+            line.starts_with("  ") || trimmed.starts_with("cb ") || trimmed.contains("://");
+        if code_like {
+            out.push(line.to_string());
+            continue;
+        }
+        if let Some((zh, en)) = trimmed.split_once(" · ") {
+            out.push(if lang == Lang::Zh {
+                zh.to_string()
+            } else {
+                en.to_string()
+            });
+            continue;
+        }
+        let cjk = has_cjk(trimmed);
+        let want = match lang {
+            Lang::Zh => cjk,
+            Lang::En => !cjk,
+        };
+        if want {
+            out.push(line.to_string());
+        }
+    }
+    while out.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
+/// 把 clap 命令树上的文案裁成单语言。
+fn localize_command(mut cmd: clap::Command, lang: Lang) -> clap::Command {
+    if let Some(about) = cmd
+        .get_about()
+        .map(|s| pick_localized(&s.to_string(), lang))
+    {
+        cmd = cmd.about(about);
+    }
+    if let Some(long) = cmd
+        .get_long_about()
+        .map(|s| pick_block(&s.to_string(), lang))
+    {
+        cmd = cmd.long_about(long);
+    }
+    if let Some(after) = cmd
+        .get_after_help()
+        .map(|s| pick_block(&s.to_string(), lang))
+    {
+        cmd = cmd.after_help(after);
+    }
+    let arg_ids: Vec<String> = cmd
+        .get_arguments()
+        .map(|a| a.get_id().to_string())
+        .collect();
+    for id in arg_ids {
+        cmd = cmd.mut_arg(id, |arg| {
+            let mut arg = arg;
+            if let Some(help) = arg.get_help().map(|s| pick_localized(&s.to_string(), lang)) {
+                arg = arg.help(help);
+            }
+            if let Some(long) = arg
+                .get_long_help()
+                .map(|s| pick_block(&s.to_string(), lang))
+            {
+                arg = arg.long_help(long);
+            }
+            arg
+        });
+    }
+    let names: Vec<String> = cmd
+        .get_subcommands()
+        .map(|s| s.get_name().to_string())
+        .collect();
+    for name in names {
+        cmd = cmd.mut_subcommand(name, |sub| localize_command(sub, lang));
+    }
+    cmd
+}
+
+/// 按预扫语言构建命令（帮助文本单语言），再解析参数。
+fn build_cli() -> Cli {
+    let lang = cb_core::i18n::detect(prescan_lang().as_deref());
+    cb_core::i18n::set(lang);
+    let cmd = localize_command(Cli::command(), lang);
+    match Cli::from_arg_matches(&cmd.get_matches()) {
+        Ok(cli) => cli,
+        Err(err) => err.exit(),
+    }
+}
+
 fn main() {
-    let cli = Cli::parse();
+    let cli = build_cli();
     init_tracing(cli.verbose);
 
     let db_path = cli.db.clone().unwrap_or_else(default_db_path);
@@ -507,7 +648,7 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 );
                 output::print_json(&envelope);
             } else if rows.is_empty() {
-                println!("no history");
+                println!("{}", cb_core::i18n::t("ui.no_history"));
             } else {
                 for row in rows {
                     println!("{}\t{}\t{}", row.ts, row.title, row.url);
@@ -529,7 +670,12 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 output::print_json(&envelope);
             } else {
                 for tool in tools {
-                    println!("{:<16} [{}] {}", tool.name, tool.kind, tool.summary);
+                    println!(
+                        "{:<16} [{}] {}",
+                        tool.name,
+                        tool.kind,
+                        tool.summary_for(cb_core::i18n::current())
+                    );
                 }
             }
             Ok(0)

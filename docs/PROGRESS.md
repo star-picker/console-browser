@@ -64,6 +64,20 @@
 Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在本轮修 —— 静态 HTML 里没有 README 正文（在 JS 载荷里），属 M3 的 JS 执行 + 站点适配器范畴 —— 代价：M1 对 JS 站与部分 GitHub 页面质量不达标，已在 TASKS 里标明。
 - 证据：`cargo test --workspace` 28 passed / 1 ignored；`cargo clippy --workspace --all-targets` 无告警；`cargo fmt --all --check` 通过。
 
+### 语言开关=单语言整体切换 + 人机逻辑打磨（本轮）
+
+- **单语言整体切换**：
+  - TUI 全部文案迁到 `cb-core::i18n`（占位符、空状态、模式标签、浮层标题、帮助表、加载/取消/新标签、登录提示、搜索标题、状态消息），不再出现「中文 / English」拼接。
+  - CLI 帮助动态本地化：启动前预扫 `--lang`，把 clap 命令树上的 about / long_about / after_help / 每个参数 help 裁成单语言；`cb tools` 也按语言取摘要（`ToolSpec::summary_for`）。
+  - 新增测试：`cb --lang en --help` 无中文、`--lang zh --help` 有中文、单命令帮助同理、`cb tools` 单语言、TUI 语言切换用例（宽字符按 cell 空格处理后再匹配）。
+- **人机逻辑打磨**：
+  - `Ctrl-C` = 取消当前加载 / 关闭输入（Browse 与 Input 两套键位都映射），不再需要记住 Esc 才知道怎么中止。
+  - 加载中状态条带动画 spinner（ASCII 模式退化为 `|/-\\`），每帧 tick 驱动。
+  - 失败可恢复：错误页 `r` 重试、`b` 返回；登录墙只在**真登录**时出现，且保留正文只加提示条。
+  - 键位可发现：地址栏输入 `?` / `cb:help` 直接出帮助浮层；空状态给了双行提示与一行键位速览。
+- **调度**：按用户要求建了两条每日提醒 —— 北京时间 00:31 开工（闲时计费），08:29 收工（高峰不写代码）。
+- 证据：`cargo fmt --all --check` 通过、`cargo clippy --workspace --all-targets -- -D warnings` 零告警、`cargo test --workspace` **130 passed**、`cb selftest` `all_ok: true`。
+
 ### 实机反馈修复 · 只对真登录介入人工 + CI 门禁
 
 - **误判修复**：之前把「页面里有验证码标记」直接当登录墙，导致 baidu 这类页一跳就弹「需要你」。现在：
