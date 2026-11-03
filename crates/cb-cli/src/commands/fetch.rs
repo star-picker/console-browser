@@ -52,6 +52,14 @@ pub struct FetchArgs {
     /// 挑战升到最后一阶时问模型（花 token）· Ask the model as the last escalation rung
     #[arg(long)]
     pub ai_escalate: bool,
+
+    /// 强制在 markdown 里输出图片（默认开）· Force images in markdown (default on)
+    #[arg(long, conflicts_with = "no_images")]
+    pub images: bool,
+
+    /// 不在 markdown 里输出图片 · Omit images from markdown
+    #[arg(long, conflicts_with = "images")]
+    pub no_images: bool,
 }
 
 impl FetchArgs {
@@ -70,6 +78,7 @@ impl FetchArgs {
             record: self.record.clone(),
             timeout_ms: self.timeout_ms,
             ai_escalate: self.ai_escalate,
+            images: !self.no_images,
         })
     }
 }

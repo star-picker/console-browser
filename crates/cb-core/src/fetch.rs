@@ -42,6 +42,8 @@ pub struct FetchOpts {
     pub timeout_ms: u64,
     /// 挑战升到最后一阶时，允许花 token 问模型（默认关闭）。
     pub ai_escalate: bool,
+    /// markdown 里是否内联图片（默认开；--no-images 关）。
+    pub images: bool,
 }
 
 impl Default for FetchOpts {
@@ -57,6 +59,7 @@ impl Default for FetchOpts {
             record: None,
             timeout_ms: DEFAULT_TIMEOUT_MS,
             ai_escalate: false,
+            images: true,
         }
     }
 }
@@ -351,6 +354,7 @@ fn build_outcome(
     let extract_opts = ExtractOpts {
         scope: opts.scope.clone(),
         max_tokens: opts.max_tokens,
+        images: opts.images,
         ..Default::default()
     };
     let md: Markdown = cb_extract::extract_markdown(&html, &extract_opts)

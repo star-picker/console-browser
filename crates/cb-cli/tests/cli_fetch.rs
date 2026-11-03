@@ -243,3 +243,89 @@ fn login_wall_is_reported_not_fatal() {
         .expect("hints")
         .is_empty());
 }
+#[test]
+fn md_output_contains_images_with_order_and_alt_fallback() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("with_images.cassette.json");
+    let out = cb(&dir)
+        .args([
+            "fetch",
+            "https://example.com/gallery",
+            "--replay",
+            &cassette,
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    let content = v["data"]["content"].as_str().expect("content");
+    let images = v["data"]["images"].as_array().expect("images");
+    assert_eq!(images.len(), 2, "json images: {v}");
+    assert_eq!(
+        content.matches("![").count(),
+        images.len(),
+        "md images must match json images:\n{content}"
+    );
+    assert!(
+        content.contains("![one.webp](https://img.example.com/one.webp)"),
+        "empty alt must fall back to filename:\n{content}"
+    );
+    assert!(content.contains("![second](https://img.example.com/two.png)"));
+    let first = content.find("one.webp").expect("first image");
+    let para = content.find("Another paragraph").expect("paragraph");
+    assert!(
+        first < para,
+        "image must stay before the following paragraph:\n{content}"
+    );
+}
+
+#[test]
+fn no_images_flag_suppresses_markdown_images_only() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("with_images.cassette.json");
+    let out = cb(&dir)
+        .args([
+            "fetch",
+            "https://example.com/gallery",
+            "--no-images",
+            "--replay",
+            &cassette,
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    let content = v["data"]["content"].as_str().expect("content");
+    assert!(!content.contains("!["), "no images expected:\n{content}");
+    assert_eq!(
+        v["data"]["images"].as_array().expect("images").len(),
+        2,
+        "metadata still lists images"
+    );
+}
+
+#[test]
+fn images_flag_is_accepted_explicitly() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("with_images.cassette.json");
+    let out = cb(&dir)
+        .args([
+            "fetch",
+            "https://example.com/gallery",
+            "--images",
+            "--replay",
+            &cassette,
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    let content = v["data"]["content"].as_str().expect("content");
+    assert_eq!(content.matches("![").count(), 2, "{content}");
+}

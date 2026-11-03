@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/gallery",
+      "final_url": "https://example.com/gallery",
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "max-age=600"
+      },
+      "body": "<html><head><title>Gallery</title></head><body><main><h1>Gallery</h1><p>This paragraph is long enough for the main content scorer to pick this container instead of navigation noise around it.</p><img src=\"https://img.example.com/one.webp\"><p>Another paragraph that follows the first picture so ordering is observable in the markdown output.</p><img src=\"https://img.example.com/two.png\" alt=\"second\"></main></body></html>"
+    }
+  ]
+}

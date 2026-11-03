@@ -39,6 +39,8 @@ pub struct ExtractOpts {
     pub scope: Option<String>,
     pub max_tokens: Option<usize>,
     pub inline_link_limit: usize,
+    /// 是否把图片内联进 markdown（默认开；--no-images 关）。
+    pub images: bool,
 }
 
 impl Default for ExtractOpts {
@@ -47,6 +49,7 @@ impl Default for ExtractOpts {
             scope: None,
             max_tokens: None,
             inline_link_limit: 30,
+            images: true,
         }
     }
 }
@@ -140,12 +143,55 @@ fn sel(css: &str) -> Option<Selector> {
     Selector::parse(css).ok()
 }
 
+/// 记录并（可选地）把一张图写成独立一行的 markdown。
+fn push_image(ctx: &mut Ctx, el: ElementRef<'_>, out: &mut String) {
+    let Some((src, lazy)) = best_image_src(el) else {
+        return;
+    };
+    let alt = el
+        .value()
+        .attr("alt")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    ctx.images.push(Image {
+        alt: alt.clone(),
+        url: src.clone(),
+        lazy,
+    });
+    if !ctx.emit_images {
+        return;
+    }
+    // 图片独立成行：夹在段落文字里会导致 markdown 渲染与文不对图。
+    let label = image_label(&alt, &src);
+    out.push_str(&format!("\n\n![{label}]({src})\n\n"));
+}
+
+/// 图片在 markdown 里的标签：alt 为空时退回文件名。
+///
+/// 空 alt 的图片会被部分渲染器当装饰图跳过，也会让 AI 不知道这是什么。
+pub(crate) fn image_label(alt: &str, url: &str) -> String {
+    let alt = alt.trim();
+    if !alt.is_empty() {
+        return alt.to_string();
+    }
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    let name = path.rsplit('/').next().unwrap_or("").trim();
+    if name.is_empty() {
+        "image".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
 const LIST_TAGS: &[&str] = &["ul", "ol"];
 
 struct Ctx {
     inline_links: bool,
     links: Vec<Link>,
     images: Vec<Image>,
+    /// 是否把图片内联进 markdown。
+    emit_images: bool,
     /// 正文容器是否语义化（article/main）：决定页面级页眉页脚要不要保留。
     semantic_root: bool,
 }
@@ -219,6 +265,8 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, out: &
                     let inner = inline_text(ctx, el);
                     let text = inner.trim();
                     if text.is_empty() {
+                        // 链接包着图片时标签是空文本，但它里面的图不能丢。
+                        out.push_str(&inner);
                         return;
                     }
                     if href.is_empty() {
@@ -241,27 +289,7 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, out: &
                         out.push_str(text);
                     }
                 }
-                "img" => {
-                    let Some((src, lazy)) = best_image_src(el) else {
-                        return;
-                    };
-                    let alt = el
-                        .value()
-                        .attr("alt")
-                        .unwrap_or_default()
-                        .trim()
-                        .to_string();
-                    ctx.images.push(Image {
-                        alt: alt.clone(),
-                        url: src.clone(),
-                        lazy,
-                    });
-                    // 没 alt 的图片是装饰/图标，别污染 markdown 与 AI 上下文。
-                    if alt.is_empty() {
-                        return;
-                    }
-                    out.push_str(&format!("![{alt}]({src})"));
-                }
+                "img" => push_image(ctx, el, out),
                 "br" => out.push(' '),
                 _ => {
                     let inner = inline_text(ctx, el);
@@ -429,6 +457,23 @@ fn render_element(ctx: &mut Ctx, el: ElementRef<'_>, indent: usize, blocks: &mut
             }
         }
         "hr" => blocks.push("---".to_string()),
+        // 直接挂在容器下的图（不在 p/figure 里）也要出现在正文里。
+        "img" => {
+            let mut image = String::new();
+            push_image(ctx, el, &mut image);
+            let t = image.trim();
+            if !t.is_empty() {
+                blocks.push(t.to_string());
+            }
+        }
+        // 图注单独一行斜体，跟在前面的图后面。
+        "figcaption" => {
+            let t = inline_text(ctx, el);
+            let t = t.trim();
+            if !t.is_empty() {
+                blocks.push(format!("*{t}*"));
+            }
+        }
         _ => {
             if LIST_TAGS.contains(&name) {
                 return;
@@ -556,26 +601,12 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
             .collect(),
         None => Vec::new(),
     };
-    let all_images: Vec<Image> = match sel("img") {
-        Some(s) => root
-            .select(&s)
-            .filter_map(|i| {
-                let (src, lazy) = best_image_src(i)?;
-                Some(Image {
-                    alt: i.value().attr("alt").unwrap_or_default().trim().to_string(),
-                    url: src,
-                    lazy,
-                })
-            })
-            .collect(),
-        None => Vec::new(),
-    };
-
     let inline_links = all_links.len() <= opts.inline_link_limit;
     let mut ctx = Ctx {
         inline_links,
         links: Vec::new(),
         images: Vec::new(),
+        emit_images: opts.images,
         semantic_root,
     };
     let mut blocks = Vec::new();
@@ -594,13 +625,10 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
     } else {
         ctx.links
     };
-    let images = if ctx.images.is_empty() {
-        all_images
-    } else {
-        ctx.images
-    };
+    // 只报「markdown 里真实出现过的图」，保证 md 与 images[] 是同一份事实。
+    let images = ctx.images;
 
-    let mut text = blocks.join("\n\n");
+    let mut text = squeeze_blank_lines(&blocks.join("\n\n"));
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
     }
@@ -609,22 +637,32 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
     if let Some(budget) = opts.max_tokens {
         if estimate_tokens(&text) > budget {
             truncated = true;
+            // 图不能因为预算被删：宁可少留一段文字。
+            let has_image = |block: &str| block.contains("![");
             let mut kept: Vec<String> = Vec::new();
             let mut used = 0usize;
+            let mut kept_image = false;
             for block in &blocks {
                 let cost = estimate_tokens(block) + 1;
+                if has_image(block) {
+                    used += cost;
+                    kept_image = true;
+                    kept.push(block.clone());
+                    continue;
+                }
                 if used + cost > budget && !kept.is_empty() {
-                    break;
+                    continue;
                 }
                 used += cost;
                 kept.push(block.clone());
             }
-            text = kept.join("\n\n");
+            text = squeeze_blank_lines(&kept.join("\n\n"));
             if !text.is_empty() && !text.ends_with('\n') {
                 text.push('\n');
             }
+            // 字符上限是 token 估算的保险丝；带图时不砍，图片 URL 会把它提前顶爆。
             let max_chars = budget.saturating_mul(4);
-            if text.chars().count() > max_chars {
+            if !kept_image && text.chars().count() > max_chars {
                 text = text.chars().take(max_chars).collect();
                 text.push('\n');
             }
@@ -639,6 +677,24 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
         images,
         truncated,
     })
+}
+
+/// 连续空行压成一个空行；图片独立成行会制造多余换行。
+fn squeeze_blank_lines(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut newlines = 0usize;
+    for ch in text.chars() {
+        if ch == '\n' {
+            newlines += 1;
+            if newlines > 2 {
+                continue;
+            }
+        } else {
+            newlines = 0;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// token 估算：CJK 一字≈一 token，其余按 4 字符≈1 token。
