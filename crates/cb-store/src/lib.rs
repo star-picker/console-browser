@@ -12,7 +12,7 @@ pub mod secrets;
 pub use jar::StoreCookieJar;
 pub use secrets::{default_secret_box, PlainBox, SecretBox};
 
-pub const SCHEMA_VERSION: i32 = 5;
+pub const SCHEMA_VERSION: i32 = 6;
 
 /// 缓存保留 7 天，历史 90 天，日志 14 天。
 pub const CACHE_RETENTION_SECS: i64 = 7 * 86_400;
@@ -151,7 +151,27 @@ CREATE TABLE IF NOT EXISTS site_strategy(
   last_ok_ts INTEGER,
   last_fail_ts INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS page_revisions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  url TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  sha TEXT NOT NULL,
+  chars INTEGER NOT NULL,
+  paragraphs INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_revisions_url ON page_revisions(url, ts DESC);
 "#;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevisionRow {
+    pub id: i64,
+    pub url: String,
+    pub ts: i64,
+    pub sha: String,
+    pub chars: i64,
+    pub paragraphs: i64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SiteRow {
@@ -504,6 +524,51 @@ impl Store {
         Ok(n > 0)
     }
 
+    /// 记一次正文版本（同 sha 不重复记，避免每条历史都新增一行）。
+    pub fn save_revision(
+        &self,
+        url: &str,
+        sha: &str,
+        chars: usize,
+        paragraphs: usize,
+    ) -> Result<bool> {
+        let conn = self.lock();
+        let latest: Option<String> = conn
+            .query_row(
+                "SELECT sha FROM page_revisions WHERE url=?1 ORDER BY ts DESC LIMIT 1",
+                params![url],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if latest.as_deref() == Some(sha) {
+            return Ok(false);
+        }
+        conn.execute(
+            "INSERT INTO page_revisions(url,ts,sha,chars,paragraphs) VALUES(?1,?2,?3,?4,?5)",
+            params![url, now_secs(), sha, chars as i64, paragraphs as i64],
+        )?;
+        Ok(true)
+    }
+
+    pub fn list_revisions(&self, url: &str) -> Result<Vec<RevisionRow>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id,url,ts,sha,chars,paragraphs FROM page_revisions WHERE url=?1 ORDER BY ts DESC, id DESC",
+        )?;
+        let rows = stmt
+            .query_map(params![url], |r| {
+                Ok(RevisionRow {
+                    id: r.get(0)?,
+                    url: r.get(1)?,
+                    ts: r.get(2)?,
+                    sha: r.get(3)?,
+                    chars: r.get(4)?,
+                    paragraphs: r.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
     /// 记录某域名用哪个指纹成功/失败（site strategy 学习）。
     pub fn record_site(&self, domain: &str, profile: &str, ok: bool) -> Result<()> {
         let conn = self.lock();

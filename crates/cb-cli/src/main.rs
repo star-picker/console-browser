@@ -111,6 +111,9 @@ enum Cmd {
     /// 人工接力登录 · Human-in-the-loop login (browser window or paste cookies)
     Login(commands::login::LoginArgs),
 
+    /// 正文版本历史 · Page revision history
+    Revisions(commands::revisions::RevisionsArgs),
+
     /// 学到的站点策略 · Learned per-site strategy
     Site(commands::site::SiteArgs),
 
@@ -1088,6 +1091,44 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             } else {
                 println!("saved {} cookies for {url}", cookies.len());
                 println!("reload the page (r) to use the session");
+            }
+            Ok(0)
+        }
+        Cmd::Revisions(args) => {
+            let rows = ctx
+                .store
+                .list_revisions(&args.url)
+                .map_err(cb_core::error::store_err)?;
+            if cli.json {
+                let envelope = Envelope::ok(
+                    output::meta(
+                        started.elapsed().as_millis() as u64,
+                        false,
+                        ctx.profile.as_str(),
+                    ),
+                    serde_json::json!({ "url": args.url, "revisions": rows }),
+                );
+                output::print_json(&envelope);
+            } else if rows.is_empty() {
+                println!("{}", cb_core::i18n::t("ui.revisions_none"));
+            } else {
+                let now = cb_core::now_secs();
+                let mut prev: Option<&cb_store::RevisionRow> = None;
+                for row in &rows {
+                    let delta = prev
+                        .map(|p| row.chars - p.chars)
+                        .map(|d| format!("{d:+}"))
+                        .unwrap_or_else(|| "new".to_string());
+                    println!(
+                        "{:<8} {:<16} {} chars {:+} paras  {}",
+                        human_age(row.ts, now),
+                        row.sha,
+                        row.chars,
+                        row.paragraphs,
+                        delta
+                    );
+                    prev = Some(row);
+                }
             }
             Ok(0)
         }

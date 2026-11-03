@@ -10,6 +10,7 @@ pub mod log;
 pub mod login;
 pub mod mcp;
 pub mod plugin;
+pub mod revisions;
 pub mod search;
 pub mod site;
 pub mod tui;

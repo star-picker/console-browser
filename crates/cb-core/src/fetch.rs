@@ -405,6 +405,19 @@ fn build_outcome(
         ok: true,
     })?;
 
+    // 记正文版本：同一正文不重复记，正文变了才新增一行。
+    if !md.text.trim().is_empty() {
+        let sha = content_fingerprint(md.text.as_bytes());
+        let paragraphs = md
+            .text
+            .split("\n\n")
+            .filter(|p| !p.trim().is_empty())
+            .count();
+        let _ = ctx
+            .store
+            .save_revision(final_url, &sha, md.text.chars().count(), paragraphs);
+    }
+
     // 学一学这个域名在哪个指纹下能过（site strategy）。
     if let Some(host) = url::Url::parse(final_url)
         .ok()
@@ -489,6 +502,14 @@ fn sniff_meta_charset(body: &[u8]) -> Option<String> {
     } else {
         Some(label.to_string())
     }
+}
+
+/// 内容指纹（只用于判断正文有没有变，不做安全用途）。
+fn content_fingerprint(bytes: &[u8]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 /// 按响应头 charset（其次 meta charset）解码；都没有就按 UTF-8 容错。

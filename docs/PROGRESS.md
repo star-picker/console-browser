@@ -1,3 +1,11 @@
+### 设计文档：page_revisions（正文版本差量）
+
+- schema 升到 **v6**：`page_revisions(url, ts, sha, chars, paragraphs)` + `(url, ts DESC)` 索引（只记指纹与体量，不存全文，库不会膨胀）。
+- `save_revision` **同 sha 不重复记**（连续抓同一页不会刷一堆重复行）；`list_revisions` 按 `ts DESC, id DESC` 返回。
+- `fetch_page` 成功后自动记版本，指纹用 `DefaultHasher`（只作变化检测，不做安全用途 —— 注释里写明了）。
+- CLI：`cb revisions <url>`，人读显示 `相对时间 指纹 字符数 段落数 与上一版的差`；JSON 给 `revisions: [RevisionRow]`。
+- 测试：`store_crud` 一条（同 sha 去重、新版本在前、字符数正确）。
+- 实测（同一 fixture 抓两遍）：只留 1 行，`213 chars +3 paras new`。
 ### 设计文档：site_strategy（按域名学习指纹策略）
 
 - schema 升到 **v5**：新增 `site_strategy(domain, profile, ok_count, fail_count, last_ok_ts, last_fail_ts)`。

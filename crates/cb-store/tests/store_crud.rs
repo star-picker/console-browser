@@ -216,3 +216,21 @@ fn site_strategy_counts_success_and_failure() {
         .expect("blocked");
     assert_eq!(blocked.fail_count, 1);
 }
+#[test]
+fn revisions_dedupe_identical_content() {
+    let store = cb_store::Store::open_in_memory().expect("store");
+    assert!(store
+        .save_revision("https://a/", "sha1", 100, 2)
+        .expect("r1"));
+    assert!(!store
+        .save_revision("https://a/", "sha1", 100, 2)
+        .expect("same sha must not add a row"));
+    assert!(store
+        .save_revision("https://a/", "sha2", 140, 3)
+        .expect("r2"));
+    let rows = store.list_revisions("https://a/").expect("list");
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[0].sha, "sha2", "newest first");
+    assert_eq!(rows[0].chars, 140);
+    assert_eq!(rows[1].sha, "sha1");
+}
