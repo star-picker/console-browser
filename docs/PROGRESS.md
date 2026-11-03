@@ -1,3 +1,11 @@
+### 第三阶段：daemon / AI 流式 / MCP sampling / cb-js 事件循环
+
+- **cb-session + daemon**：新 crate 放协议（换行 JSON：id/method/params → ok/result|error）、句柄表、块级差量；transport 在 Windows 用命名管道、Unix 用域套接字，单连接一次请求-响应。裁决：daemon 内会话表用 Mutex 串行（先正确再并发）；句柄只增不减，页面保留上一版快照，只有 `since == revision-1` 才回 delta，其它情况回 full——调用方永远能自证拿到的是哪一版。证据：cb-session 7 测试（差量的替换/插入/删除、open→get→refresh→delta、list/close/未知方法）+ CLI 2 条真进程走管道（open 得 @1、unchanged 不回 blocks、refresh 后 delta、close 后 not_found）。
+- **AI 流式**：cb-net 的 `stream()` 在 live 用 wreq `bytes_stream`、replay 按行切块；cb-core 的 `StreamAccumulator` 解析 SSE（跨 chunk 半行、`[DONE]`、usage）并对「代理忽略 stream 直接回整段 JSON」回退；`complete_stream(_with)` 边流边回调且照旧记账，缺 usage 时用 estimate_tokens 估。裁决：`--stream` 与 `--json` 互斥——流式输出天然不是信封，硬拼会把 stdout 弄脏。证据：3 条累加器测试 + 1 条 wire（增量 + 台账）+ 2 条 CLI。
+- **MCP sampling**：cb-core 加 `ModelSampler` trait 与 `Ctx::with_sampler`，挑战建议在本地无 key 时改问调用方；cb-mcp 拆成 stdin 读线程 / stdout 写线程 / 主循环，采样请求用 `cb-sampling-N` id 由读线程路由回等待者。裁决：采样是阻塞往返，**同步做完再返回 ready future**，否则非 Send 的 stdio 锁会毒化 fetch 的 future（第一次实现就踩了）。新工具 `ask_model`，`browse_url` 加 `ai_escalate`；MCP 错误文本带 needs_user.hint，采样建议能被调用方看到。证据：cb-mcp 1 条形状测试 + handshake 3 条（无能力报错、真采样、挑战页采样）。
+- **cb-js 事件循环 + 真实 DOM 树**：`run_event_loop(ms)` 先清 Promise 微任务再跑定时器，中断器兜底；DOM 从扁平快照升级为父子树（Rust `document_tree` + prelude 物化，属性/文本/children/parentElement），选择器支持逗号组、后代/子代、属性与 `:nth-child`，元素支持 textContent/classList/append-remove-insert/事件。裁决：JS 修改只活在本地树，不回写 RenderDoc；无布局/CSS/innerHTML/表单值；外链脚本不执行——故意留的安全边界。证据：cb-js 20 测试（含 6 条事件循环 + 6 条 DOM 树）+ CLI 3 条；全仓 274 测试 / 55 个测试二进制。
+- **JS 站实测**：百度首页 `--run-inline` 跑 7 段内联脚本且 title 正确；deepseek 首页 0 段（逻辑在外链 bundle）；百度 SERP 返回空壳（被拦）；GitHub 文件树本轮网络三指纹全挂，`meta.attempts` 记录 chrome:network + firefox/safari:timeout。结论：内联脚本 + 事件循环这条路对「脚本改 title/DOM 的页面」有效，纯 SPA 仍需要外链执行策略。
+
 ### 第二轮试用修复（FIX_TASKS_2 · 9 条）
 
 - **FIX-1 图片**：根因是两份——`inline_node` 只在 alt 非空时输出，且直接挂在容器下的 `<img>` 走 `render_element` 根本不进行内渲染。改成统一 `push_image`，图片独立成行、alt 空用文件名兜底、`figcaption` 出 `*caption*`；`--no-images` 只压 markdown 不丢 `images[]`；截断时图片块强制保留（宁可少一段文字）。收尾修正：链接包图时 `## Links` 段曾把 image markdown 再复制一遍，md 图片数比 `images[]` 多 1，Links 改用纯文字标签。

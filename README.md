@@ -31,8 +31,11 @@ cb search <q> --engine ddg|bing|gh|arxiv [--limit N]   # 结构化搜索
 cb history [--query Q] [--limit N]
 cb login <url> [--manual]    # 人工接力登录（浏览器窗口 / 粘贴 Cookie）
 cb cookies list|clear        # 登录态 cookie（只报名字，不打印值）
-cb ai config|usage|ask        # 模型配置 / token 台账 / 一次性提问
+cb ai config|usage|ask        # 模型配置 / token 台账 / 一次性提问（ask --stream 流式）
 cb agent run "<goal>" [--max-steps N] [--budget T]   # 自主循环：搜 → 抓 → 答
+cb daemon [--pipe NAME] [--replay FILE]   # 常驻会话 daemon（句柄 @eN / delta 快照）
+cb session open <url> | get @1 --since N | refresh @1 | list | close @1 | ping
+cb js <url> [--code JS] [--run-inline] [--loop-ms N]   # QuickJS + DOM 桩 + 事件循环
 cb challenge stats           # 反爬挑战胜负统计（含 llm-assist 一阶）
 cb plain <url>               # 纯文本输出（管道友好）
 cb db prune|stats|schema   # 清理 / 行数 / 表结构
@@ -50,6 +53,11 @@ cb fetch https://example.com/a --json --max-tokens 800   # 机器可读 + 省 to
 cb fetch https://example.com/a --to text                 # 纯文本（去 markdown 标记）
 cb search "rust http client" --engine ddg --json        # 结构化搜索结果
 cb agent run "ripgrep 的作者是谁" --budget 2000          # 让 agent 自己去查
+cb daemon --pipe cb-dev                            # 另开一个终端跑客户端
+cb --pipe cb-dev session open https://example.com/a
+cb --pipe cb-dev session get @1 --since 1           # 只回 delta
+cb ai ask "用三句话解释 QUIC" --stream              # 边生成边打印
+cb js https://example.com --run-inline --loop-ms 500  # 内联脚本 + 事件循环
 cb mcp serve                                       # 给 Hermes / 任意 MCP 客户端用
 ```
 
