@@ -1,3 +1,10 @@
+### 设计文档 M3 第一步：cb-js（QuickJS 运行时 + DOM/BOM 桩）
+
+- 新 crate `cb-js`：rquickjs（QuickJS）运行时，`eval` 返回字符串或 JSON。
+- 最小 DOM/BOM：`install_document(title, body_text)` 注入 `document.title` / `document.body.innerText`，脚本里常见的取值/长度运算可跑通。
+- CLI：`cb js [URL] [--code CODE] [--replay FILE]` —— 先抓页面建 document 桩，再执行代码（默认 `document.title`）。
+- Ruling：**先能执行、再谈完整 DOM**。真实 DOM 树/BOM（location/localStorage/CSSOM）与 fetch 桥接 cb-net 放到下一步，避免做出一半的“假浏览器”；当前这层已能验证 QuickJS 链路与 JS 错误码（`js_error` → exit 5）。
+- 测试：表达式求值、JSON 序列化、document 桩（title/innerText/长度）。
 ### 设计文档 M5-1：插件系统（清单 + 权限 + 发现）
 
 - 新 crate `cb-plugins`：`plugin.json` schema（name/version/description/permissions/hooks.extract 声明式选择器）。

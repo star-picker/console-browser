@@ -111,6 +111,19 @@ enum Cmd {
     /// 人工接力登录 · Human-in-the-loop login (browser window or paste cookies)
     Login(commands::login::LoginArgs),
 
+    /// 在最小 JS 运行时里跑脚本（DOM/BOM 桩）· Run JS with DOM/BOM stubs
+    Js {
+        /// 先抓这个 URL 建 document 桩 · Page whose title/text seeds the document stub
+        #[arg(value_name = "URL")]
+        url: Option<String>,
+        /// 要执行的代码 · JS code to evaluate
+        #[arg(long, value_name = "CODE")]
+        code: Option<String>,
+        /// 从 cassette 回放 · Replay a cassette
+        #[arg(long, value_name = "FILE")]
+        replay: Option<PathBuf>,
+    },
+
     /// 插件清单/权限 · Plugins (manifest + permissions)
     Plugin(commands::plugin::PluginArgs),
 
@@ -1041,6 +1054,36 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             } else {
                 println!("saved {} cookies for {url}", cookies.len());
                 println!("reload the page (r) to use the session");
+            }
+            Ok(0)
+        }
+        Cmd::Js { url, code, replay } => {
+            let engine = cb_js::JsRuntime::new().map_err(|e| CbError::js(e.to_string()))?;
+            if let Some(target) = url {
+                let opts = cb_core::FetchOpts {
+                    url: target.clone(),
+                    replay: replay.clone(),
+                    ..Default::default()
+                };
+                let outcome = cb_core::fetch_page(ctx, &opts).await?;
+                engine
+                    .install_document(&outcome.title, &outcome.markdown)
+                    .map_err(|e| CbError::js(e.to_string()))?;
+            }
+            let code = code.clone().unwrap_or_else(|| "document.title".to_string());
+            let result = engine.eval(&code).map_err(|e| CbError::js(e.to_string()))?;
+            if cli.json {
+                let envelope = Envelope::ok(
+                    output::meta(
+                        started.elapsed().as_millis() as u64,
+                        false,
+                        ctx.profile.as_str(),
+                    ),
+                    serde_json::json!({ "code": code, "result": result }),
+                );
+                output::print_json(&envelope);
+            } else {
+                println!("{result}");
             }
             Ok(0)
         }
