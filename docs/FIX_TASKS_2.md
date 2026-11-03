@@ -11,17 +11,27 @@
 
 | 编号 | 标题 | 严重度 | 预计工时 | 状态 |
 |---|---|---|---|---|
-| FIX-1 | `--to md` 输出里没有任何图片 | ★★★ | 1h | [ ] |
-| FIX-2 | `fetch` 无重试、无 profile 阶梯 | ★★★ | 2h | [ ] |
-| FIX-3 | `meta.cache.age_s` 恒为 null（真值在 data 里） | ★★ | 20m | [ ] |
-| FIX-4 | `extract.container_score` 恒为 null | ★★ | 30m | [ ] |
-| FIX-5 | arXiv 429 被标成不可重试 | ★★ | 20m | [ ] |
-| FIX-6 | DNS 解析失败被标成可重试 | ★ | 20m | [ ] |
-| FIX-7 | `--scope` 命中与否无回执 | ★ | 20m | [ ] |
-| FIX-8 | `webui` 首页 `?url=` 参数无效 | ★ | 20m | [ ] |
-| FIX-9 | `bench` 失败时不留部分结果 | ★ | 20m | [ ] |
+| FIX-1 | `--to md` 输出里没有任何图片 | ★★★ | 1h | [x] `025f922` + `0e43633` |
+| FIX-2 | `fetch` 无重试、无 profile 阶梯 | ★★★ | 2h | [x] `db6b70c` |
+| FIX-3 | `meta.cache.age_s` 恒为 null（真值在 data 里） | ★★ | 20m | [x] `6b5430e` |
+| FIX-4 | `extract.container_score` 恒为 null | ★★ | 30m | [x] `7ae67a8` + `0e43633` |
+| FIX-5 | arXiv 429 被标成不可重试 | ★★ | 20m | [x] `c6a63dd` |
+| FIX-6 | DNS 解析失败被标成可重试 | ★ | 20m | [x] `868452f` |
+| FIX-7 | `--scope` 命中与否无回执 | ★ | 20m | [x] `f68bbfd` |
+| FIX-8 | `webui` 首页 `?url=` 参数无效 | ★ | 20m | [x] `a0848a0` |
+| FIX-9 | `bench` 失败时不留部分结果 | ★ | 20m | [x] `701f472` |
 
-**合计约 5 小时。**
+**合计约 5 小时。全部完成；收尾修正见 `0e43633`。**
+
+## 完成记录（2026-11-03）
+
+- 每条都有测试；绝大多数走 `--replay` cassette，离线可跑；两条真实网络用例标记为 `#[ignore]`。
+- 三门禁全绿：`cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace`。
+- 真实网络手工复测：
+  - 阮一峰周刊 `--to md`：57 张图，且与 `data.images` 长度一致（早先差 1 是链接包图在 `## Links` 段重复，已修）。
+  - `meta.cache.age_s`：命中时给真值（实测 47411 秒）。
+  - `meta.extract.container_score` / `is_article`：有真值；`--scope` 回执带 `matched/chars_before/chars_after`。
+  - `meta.attempts`：真实网络复现 chrome 超时 → firefox/safari 续试成功。
 
 ---
 

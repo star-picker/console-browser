@@ -24,8 +24,8 @@ The switch is global: once chosen, CLI help, `cb tools` and every TUI label rend
 
 ```
 cb fetch <url> [--to md|html|text|json] [--max-tokens N] [--scope CSS]
-               [--profile chrome|firefox|safari] [--fresh]
-               [--replay FILE] [--record FILE] [--out FILE] [--json]
+               [--images|--no-images] [--profile chrome|firefox|safari] [--fresh]
+               [--timeout MS] [--replay FILE] [--record FILE] [--out FILE] [--json]
                [--ai-escalate]
 cb search <q> --engine ddg|bing|gh|arxiv [--limit N]   # 结构化搜索
 cb history [--query Q] [--limit N]

@@ -1,3 +1,16 @@
+### 第二轮试用修复（FIX_TASKS_2 · 9 条）
+
+- **FIX-1 图片**：根因是两份——`inline_node` 只在 alt 非空时输出，且直接挂在容器下的 `<img>` 走 `render_element` 根本不进行内渲染。改成统一 `push_image`，图片独立成行、alt 空用文件名兜底、`figcaption` 出 `*caption*`；`--no-images` 只压 markdown 不丢 `images[]`；截断时图片块强制保留（宁可少一段文字）。收尾修正：链接包图时 `## Links` 段曾把 image markdown 再复制一遍，md 图片数比 `images[]` 多 1，Links 改用纯文字标签。
+- **FIX-2 重试/指纹阶梯**：把「重试」与「换指纹」合成同一条 3 阶梯（用户指定优先，其后 chrome/firefox/safari），只对 `network`/`timeout` 退避（500ms/1500ms）；404/429/DNS/403 立即失败；连接 5s、读取 25s、总预算跟 `--timeout`；`meta.attempts` 报每次的 profile/ok/ms/error，全挂时 message 汇总总耗时。cassette 增加「同 URL 多条序列 + error 注入」，离线测重试。
+- **FIX-3**：`meta.cache.age_s` 填真实年龄（冷启动仍 null），`data.cache_age_s` 保留兼容，测试断言两处一致。
+- **FIX-4**：`container_score` 用「选中容器可见文本 / 页面可见文本」（跳过 script/style，链接密度不再误伤周刊类文章）；另加 `extract.is_article` 明确标注列表页。诚实的两个字段，而不是一个混合分数。
+- **FIX-5**：429 独立成 `rate_limited` + `retryable:true` + `retry_after_s`（优先 Retry-After，缺省 5s），fetch 与 search 共用；不参与内部自动重试，避免把限流站点打得更狠。
+- **FIX-6**：cb-net 按错误链特征串识别 DNS 失败 → `dns_error`、不可重试、消息带主机名；wreq 超时单独归 `Timeout`（可重试）。
+- **FIX-7**：`--scope` 未命中不再报错，返回空结果 + `matched:false`；`meta.extract.scope` 给 selector/matched/chars_before/chars_after；stderr 给人一条 warning。
+- **FIX-8**：webui 首页读 `?url=`，服务端把转义后的起始地址注入页面，前端加载后自动调 `/api/navigate`；补了一个真实 HTTP GET 测试。
+- **FIX-9**：bench 每完成一次就记 `{i, ok, ms, error}`，失败时照样输出 samples/completed/planned/p50，`data.error` 指出断在第几次；cassette 回放游标做成可跨请求共享的 `ReplaySession`。
+- 证据：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全绿（新增 9 组测试文件/断言）；真实网络复测阮一峰周刊：md 图片 57 == `data.images` 57，`meta.cache.age_s` 有真值，`meta.attempts` 复现 chrome 超时后 firefox/safari 成功。
+
 ### 实机反馈：正文链接不可辨、图片看不到
 
 - **链接**：`map_style` 新增链接样式（浅蓝 `LINK` + 下划线），聚焦时反色；正文里的 `<a>` 现在一眼能认出来，Tab 循环聚焦后状态栏显示 URL，Enter 打开。新增测试（链接必须有 UNDERLINED，正文没有，聚焦必须 REVERSED）。

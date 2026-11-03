@@ -1,7 +1,20 @@
 # 任务与状态
 
 > 台账（为什么这么做、证据）在 [PROGRESS.md](PROGRESS.md)；这里只记状态。
-> 最后更新：目标第 15 轮（2026-11-03）
+> 最后更新：第二轮试用修复完成（2026-11-03）
+
+## 第二轮试用修复（Hermes TRIAL_REPORT_2 / FIX_TASKS_2）
+
+- [x] FIX-1 `--to md` 图片：按位置插入、alt 空用文件名、figcaption 斜体、`--images/--no-images`、截断保图；链接包图不再在 Links 段重复
+- [x] FIX-2 fetch 重试 + fingerprint 阶梯：连接 5s / 读取 25s / 总预算；network+timeout 退避换指纹；`meta.attempts`；全挂聚合错误
+- [x] FIX-3 `meta.cache.age_s` 真值（冷启动仍 null）
+- [x] FIX-4 `extract.container_score` 真值（可见文本占比）+ `is_article` 标注
+- [x] FIX-5 429 → `rate_limited` + `retry_after_s`（fetch/search 都覆盖）
+- [x] FIX-6 DNS 失败 → `dns_error`、不可重试、消息带域名
+- [x] FIX-7 `--scope` 回执：matched / chars_before / chars_after；未命中不报错、stderr 提示
+- [x] FIX-8 webui 首页 `?url=` 生效（转义注入 + 自动 navigate）
+- [x] FIX-9 bench 失败保留 samples/completed/planned/p50 + data.error
+- [x] 测试与门禁：每条带测试；fmt/clippy/test 全绿；两条真实网络用例 `#[ignore]`
 
 ## M1 无头内核
 
