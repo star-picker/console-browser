@@ -14,6 +14,7 @@ cb-mcp = { version = "0.1.0", path = "../cb-mcp" }
 cb-net = { version = "0.1.0", path = "../cb-net" }
 cb-store = { version = "0.1.0", path = "../cb-store" }
 cb-tui = { version = "0.1.0", path = "../cb-tui" }
+cb-webui = { version = "0.1.0", path = "../cb-webui" }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 dirs = "7.0.0"
 rustyline = "19.0.0"
@@ -31,4 +32,3 @@ path = "src/main.rs"
 assert_cmd = "2.2.2"
 predicates = "3.1.4"
 tempfile = "3.27.0"
-

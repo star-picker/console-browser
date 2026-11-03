@@ -10,6 +10,7 @@ members = [
     "crates/cb-cli",
     "crates/cb-render",
     "crates/cb-tui",
+    "crates/cb-webui",
     "crates/cb-assist",
 ]
 

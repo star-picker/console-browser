@@ -111,6 +111,16 @@ enum Cmd {
     /// 人工接力登录 · Human-in-the-loop login (browser window or paste cookies)
     Login(commands::login::LoginArgs),
 
+    /// 本地 Web 镜像（SSE 推送同一份阅读视图）· Local web mirror over SSE
+    Webui {
+        /// 端口 · Port
+        #[arg(long, default_value_t = 7878)]
+        port: u16,
+        /// 启动时先打开这个 URL · Open this URL first
+        #[arg(long, value_name = "URL")]
+        url: Option<String>,
+    },
+
     /// 离屏渲染 TUI 一帧（文本截图，便于预览排版）· Render one TUI frame offscreen
     Render {
         /// 目标 URL · Target URL
@@ -1029,6 +1039,13 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 println!("saved {} cookies for {url}", cookies.len());
                 println!("reload the page (r) to use the session");
             }
+            Ok(0)
+        }
+        Cmd::Webui { port, url } => {
+            let addr = cb_webui::serve(ctx.clone(), *port, url.clone()).await?;
+            println!("{addr}");
+            eprintln!("cb: web mirror running; Ctrl-C to stop");
+            let _ = tokio::signal::ctrl_c().await;
             Ok(0)
         }
         Cmd::Render {

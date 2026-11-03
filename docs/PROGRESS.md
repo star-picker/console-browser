@@ -1,3 +1,10 @@
+### 设计文档 M4：webui（SSE 镜像）落地
+
+- 新 crate `cb-webui`（axum）：`GET /` 单文件内嵌 HTML（零构建、零外链），`GET /events` 用 SSE 每 500ms 推一帧快照，`GET /api/state` 取当前快照，`POST /api/navigate` 抓页并更新。
+- 快照模型 `Snapshot {url, title, status, lines[]}`，`lines_from_doc` 把 RenderDoc 拍平成 `h1/h2/p/li/pre/quote/table/hr/img/notice`，前端按 kind 渲染 —— 浏览器式排版：820px 限宽居中、标题层级、代码块、引用条、提示条。
+- CLI：`cb webui [--port 7878] [--url …]`，打印实际监听地址（端口 0 可随机）。
+- 冒烟验证：起服务 `http://127.0.0.1:60034/` → `GET /` 200、`GET /api/state` 返回 `{"url":"","title":"","status":"","lines":[]}`。
+- 测试：3 条（块→行 kind 映射、index 自洽且用 EventSource、span 拍平）；全仓 **183 passed**。
 ### 试用报告 P1 收尾：selftest 状态细分 + 全局 --timeout
 
 - `cb selftest --json` 的 report 现在带 `status`（`ok` / `degraded` / `fail`）与 `counts {ok, skipped, fail}`：有可选能力缺失（tls oracle / JS 引擎 / LLM 未配）时是 `degraded`，不再笼统「绿」。

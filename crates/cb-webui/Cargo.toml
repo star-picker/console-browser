@@ -1,0 +1,20 @@
+[package]
+name = "cb-webui"
+version.workspace = true
+edition.workspace = true
+description = "cb-webui: local web mirror for the console browser session"
+license.workspace = true
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["net", "time", "sync", "signal"] }
+tokio-stream = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+futures-util = "0.3.32"
+cb-core = { path = "../cb-core" }
+cb-extract = { path = "../cb-extract" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
