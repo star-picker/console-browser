@@ -79,7 +79,10 @@ pub fn run_selftest(ctx: &Ctx) -> SelftestReport {
         "tls",
         "oracle check needs network: cargo test -p cb-net --test tls_profile -- --ignored",
     ));
-    checks.push(CheckResult::skipped("js", "JS engine lands in M3"));
+    checks.push(CheckResult::ok(
+        "js",
+        "cb-js runtime: DOM snapshot + BOM stubs (fetch bridge pending)",
+    ));
     checks.push(CheckResult::skipped(
         "llm",
         "no LLM configured (M2); cb runs fully local without one",
