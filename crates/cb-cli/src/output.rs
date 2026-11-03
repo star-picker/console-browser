@@ -18,6 +18,12 @@ pub fn meta(elapsed_ms: u64, cached: bool, profile: &str) -> Meta {
     }
 }
 
+/// 填上真实的缓存年龄（秒）。meta 里放真值，别让调用方去 data 里猜。
+pub fn with_cache(mut meta: Meta, age_s: Option<i64>) -> Meta {
+    meta.cache.age_s = age_s.map(|s| s.max(0) as u64);
+    meta
+}
+
 /// 附上抽取统计：字符数 / 段落数，便于调用方判断正文质量。
 pub fn with_extract(mut meta: Meta, markdown: &str) -> Meta {
     let paragraphs = markdown

@@ -40,6 +40,11 @@ fn fetch_md_json_shape_and_cache_hit() {
     let v = parse(&out);
     assert_eq!(v["ok"], true);
     assert_eq!(v["meta"]["cached"], false);
+    assert_eq!(v["meta"]["cache"]["hit"], false);
+    assert!(
+        v["meta"]["cache"]["age_s"].is_null(),
+        "cold fetch has no cache age: {v}"
+    );
     assert_eq!(v["meta"]["profile"], "chrome");
     let engine = v["meta"]["engine"].as_str().expect("engine");
     assert!(
@@ -70,7 +75,16 @@ fn fetch_md_json_shape_and_cache_hit() {
         v2["meta"]["cached"], true,
         "second read must be a cache hit"
     );
-    assert!(v2["data"]["cache_age_s"].as_i64().is_some());
+    assert_eq!(v2["meta"]["cache"]["hit"], true);
+    let age = v2["meta"]["cache"]["age_s"]
+        .as_u64()
+        .expect("meta.cache.age_s must carry the real age");
+    assert!(age <= 3, "age too large for a just-cached page: {age}");
+    assert_eq!(
+        Some(age as i64),
+        v2["data"]["cache_age_s"].as_i64(),
+        "meta and data must agree on cache age"
+    );
 }
 
 #[test]
