@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/slow",
+      "final_url": "https://example.com/slow",
+      "status": 429,
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "retry-after": "30"
+      },
+      "body": "too many requests"
+    }
+  ]
+}

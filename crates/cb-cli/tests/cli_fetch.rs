@@ -398,3 +398,43 @@ fn scope_receipt_reports_hit_and_miss() {
         "humans need a stderr warning, got: {stderr}"
     );
 }
+
+#[test]
+fn http_429_is_rate_limited_and_retryable_with_hint() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("rate_limited.cassette.json");
+    let out = cb(&dir)
+        .args(["fetch", "https://example.com/slow", "--replay", &cassette])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    assert_eq!(v["error"]["code"], "rate_limited", "{v}");
+    assert_eq!(v["error"]["retryable"], true, "{v}");
+    assert_eq!(
+        v["error"]["retry_after_s"], 30,
+        "Retry-After header must be honoured: {v}"
+    );
+    assert!(
+        v["error"]["needs_user"].is_null(),
+        "429 is not a challenge: {v}"
+    );
+}
+
+#[test]
+fn http_429_without_retry_after_defaults_to_five_seconds() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("rate_limited_default.cassette.json");
+    let out = cb(&dir)
+        .args(["fetch", "https://example.com/slow", "--replay", &cassette])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    assert_eq!(v["error"]["code"], "rate_limited", "{v}");
+    assert_eq!(v["error"]["retry_after_s"], 5, "{v}");
+}

@@ -153,3 +153,24 @@ fn empty_serp_reports_its_reason_and_evidence() {
     assert_eq!(v["data"]["http_status"], 200, "{v}");
     assert!(v["data"]["bytes"].as_u64().unwrap_or(0) > 0, "{v}");
 }
+
+#[test]
+fn arxiv_429_is_rate_limited_not_challenge() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("arxiv_429.cassette.json");
+    let (code, v) = run(
+        &dir,
+        &[
+            "search",
+            "diffusion",
+            "--engine",
+            "arxiv",
+            "--replay",
+            &cassette,
+        ],
+    );
+    assert_eq!(code, 3, "rate limited exits as network: {v}");
+    assert_eq!(v["error"]["code"], "rate_limited", "{v}");
+    assert_eq!(v["error"]["retryable"], true, "{v}");
+    assert_eq!(v["error"]["retry_after_s"], 30, "{v}");
+}

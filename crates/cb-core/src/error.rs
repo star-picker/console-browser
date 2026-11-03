@@ -14,6 +14,9 @@ pub struct ErrorBody {
     pub code: String,
     pub message: String,
     pub retryable: bool,
+    /// 服务端建议的重试等待秒数（429 用；其他错误不带这个字段）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_s: Option<u64>,
     pub needs_user: Option<NeedsUser>,
 }
 
@@ -42,6 +45,7 @@ impl CbError {
                 code: code.to_string(),
                 message: message.into(),
                 retryable,
+                retry_after_s: None,
                 needs_user: None,
             },
         }
@@ -75,6 +79,18 @@ impl CbError {
 
     pub fn timeout(message: impl Into<String>) -> CbError {
         CbError::new("timeout", message, true)
+    }
+
+    /// 429 是「太快了」，不是「解不开挑战」：可重试，并带建议等待时长。
+    pub fn rate_limited(message: impl Into<String>, retry_after_s: Option<u64>) -> CbError {
+        let wait = retry_after_s.unwrap_or(5);
+        let mut err = CbError::new(
+            "rate_limited",
+            format!("{}, retry after {wait}s", message.into()),
+            true,
+        );
+        err.body.retry_after_s = Some(wait);
+        err
     }
 
     pub fn needs_auth(message: impl Into<String>, url: &str) -> CbError {
@@ -134,6 +150,7 @@ impl CbError {
             "js_error" => EXIT_JS,
             "not_found" => EXIT_NOT_FOUND,
             "timeout" => EXIT_TIMEOUT,
+            "rate_limited" => EXIT_NETWORK,
             "needs_auth" | "needs_login" => EXIT_NEEDS_AUTH,
             "budget_exhausted" => EXIT_BUDGET,
             "parse_failed" => EXIT_PARSE,
@@ -181,6 +198,7 @@ mod tests {
             ("js_error", EXIT_JS),
             ("not_found", EXIT_NOT_FOUND),
             ("timeout", EXIT_TIMEOUT),
+            ("rate_limited", EXIT_NETWORK),
             ("needs_auth", EXIT_NEEDS_AUTH),
             ("budget_exhausted", EXIT_BUDGET),
             ("parse_failed", EXIT_PARSE),

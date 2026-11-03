@@ -368,10 +368,14 @@ async fn search_once(
     let bytes = resp.body.len();
     if resp.status >= 400 {
         return Err(match resp.status {
-            403 | 429 => CbError::challenge(
-                format!("{} blocked with http {}", engine.as_str(), resp.status),
+            403 => CbError::challenge(
+                format!("{} blocked with http 403", engine.as_str()),
                 &url,
                 "rotate profile, slow down, or hand off to the calling agent",
+            ),
+            429 => CbError::rate_limited(
+                format!("{} rate limited (429)", engine.as_str()),
+                Some(crate::fetch::retry_after_s(&resp.headers)),
             ),
             404 => CbError::not_found(format!("{} endpoint 404", engine.as_str())),
             s => CbError::network(format!("{} http {s}", engine.as_str())),
@@ -536,10 +540,14 @@ async fn legacy_search_removed(ctx: &Ctx, opts: &SearchOpts) -> Result<Vec<Searc
     };
     if resp.status >= 400 {
         return Err(match resp.status {
-            403 | 429 => CbError::challenge(
-                format!("{} blocked with http {}", opts.engine.as_str(), resp.status),
+            403 => CbError::challenge(
+                format!("{} blocked with http 403", opts.engine.as_str()),
                 &url,
                 "rotate profile, slow down, or hand off to the calling agent",
+            ),
+            429 => CbError::rate_limited(
+                format!("{} rate limited (429)", opts.engine.as_str()),
+                Some(crate::fetch::retry_after_s(&resp.headers)),
             ),
             404 => CbError::not_found(format!("{} endpoint 404", opts.engine.as_str())),
             s => CbError::network(format!("{} http {s}", opts.engine.as_str())),

@@ -113,7 +113,19 @@ pub fn cache_ttl_secs(headers: &[(String, String)]) -> i64 {
     DEFAULT_CACHE_TTL_SECS
 }
 
-fn status_error(status: u16, url: &str) -> CbError {
+/// Retry-After 头：秒数；没有就按 5s 建议（429 的常见退避起点）。
+pub fn retry_after_s(headers: &[(String, String)]) -> u64 {
+    for (k, v) in headers {
+        if k.eq_ignore_ascii_case("retry-after") {
+            if let Ok(n) = v.trim().parse::<u64>() {
+                return n;
+            }
+        }
+    }
+    5
+}
+
+fn status_error(status: u16, url: &str, headers: &[(String, String)]) -> CbError {
     match status {
         401 | 407 => CbError::needs_auth(format!("http {status}"), url),
         403 => CbError::challenge(
@@ -122,7 +134,12 @@ fn status_error(status: u16, url: &str) -> CbError {
             "escalate: rotate profile, warm cookies, or hand off to the calling agent",
         ),
         404 | 410 => CbError::not_found(format!("http {status}")),
-        // 429 / 5xx 是瞬时的，不是反爬：可重试，交给调用方决定。
+        // 429 不是反爬：它明确说「慢一点」，可重试并带建议等待时长。
+        429 => CbError::rate_limited(
+            "http 429: too many requests (rate limited)".to_string(),
+            Some(retry_after_s(headers)),
+        ),
+        // 5xx 是瞬时的：可重试，交给调用方决定。
         s => CbError::network(format!("http {s}")),
     }
 }
@@ -222,7 +239,11 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
                 detail: Some(format!("attempt {}", attempt + 1)),
             });
             last_challenge_body = Some(decode_body(&attempt_resp.body, &attempt_resp.headers));
-            last_challenge = Some(status_error(attempt_resp.status, &opts.url));
+            last_challenge = Some(status_error(
+                attempt_resp.status,
+                &opts.url,
+                &attempt_resp.headers,
+            ));
             continue;
         }
 
@@ -284,7 +305,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
     let content_type = resp.header("content-type").unwrap_or("").to_string();
 
     if resp.status >= 400 {
-        return Err(status_error(resp.status, &opts.url));
+        return Err(status_error(resp.status, &opts.url, &resp.headers));
     }
     ensure_text_content_type(&content_type)?;
     if resp.body.len() > MAX_BODY_BYTES {

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://export.arxiv.org/api/query?search_query=all:diffusion&max_results=10",
+      "final_url": "https://export.arxiv.org/api/query?search_query=all:diffusion&max_results=10",
+      "status": 429,
+      "headers": {
+        "content-type": "application/atom+xml",
+        "retry-after": "30"
+      },
+      "body": "429 rate limited"
+    }
+  ]
+}
