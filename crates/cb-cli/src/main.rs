@@ -228,6 +228,21 @@ fn prescan_lang() -> Option<String> {
     None
 }
 
+/// 人读的相对时间：刚刚 / 5m / 3h / 2d。
+fn human_age(ts: i64, now: i64) -> String {
+    let d = (now - ts).max(0);
+    if d < 60 {
+        return cb_core::i18n::t("ui.ago.now").to_string();
+    }
+    if d < 3600 {
+        return format!("{}m", d / 60);
+    }
+    if d < 86_400 {
+        return format!("{}h", d / 3600);
+    }
+    format!("{}d", d / 86_400)
+}
+
 fn has_cjk(text: &str) -> bool {
     text.chars()
         .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || ('\u{3000}'..='\u{303f}').contains(&c))
@@ -576,7 +591,10 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     );
                 }
                 let envelope = Envelope::ok(
-                    output::meta(elapsed, outcome.cached, ctx.profile.as_str()),
+                    output::with_extract(
+                        output::meta(elapsed, outcome.cached, ctx.profile.as_str()),
+                        &outcome.markdown,
+                    ),
                     data,
                 );
                 output::print_json(&envelope);
@@ -613,7 +631,10 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 outcome.markdown.clone()
             };
             let elapsed = started.elapsed().as_millis() as u64;
-            let meta = output::meta(elapsed, outcome.cached, ctx.profile.as_str());
+            let meta = output::with_extract(
+                output::meta(elapsed, outcome.cached, ctx.profile.as_str()),
+                &outcome.markdown,
+            );
             if let Some(path) = &args.out {
                 std::fs::write(path, &content)
                     .map_err(|e| CbError::other(format!("write {}: {e}", path.display())))?;
@@ -665,8 +686,9 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             } else if rows.is_empty() {
                 println!("{}", cb_core::i18n::t("ui.no_history"));
             } else {
+                let now = cb_core::now_secs();
                 for row in rows {
-                    println!("{}\t{}\t{}", row.ts, row.title, row.url);
+                    println!("{:<10}\t{}\t{}", human_age(row.ts, now), row.title, row.url);
                 }
             }
             Ok(0)

@@ -158,6 +158,7 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
     ("ui.help.quit", "复制 URL / 帮助 / 退出", "copy URL / help / quit"),
     ("ui.search", "搜索", "search"),
     ("ui.lines", "行", "lines"),
+    ("ui.ago.now", "刚刚", "just now"),
     ("ui.status.cookie_imported", "已导入 cookie", "cookies imported"),
     ("ui.status.cookie_no_url", "没有可用的 URL，无法导入 cookie", "no url, cannot import cookies"),
     ("ui.status.command", "命令", "command"),

@@ -1,3 +1,9 @@
+### 试用报告 P1：meta.cache 对象化 / meta.extract 统计 / history 人读时间
+
+- `meta.cached` 之外新增 `meta.cache = {hit, age_s, stale}`（age_s 暂为 null，等缓存层带出年龄），调用方能判断新鲜度而不是只有一个布尔。
+- 新增 `meta.extract = {chars, paragraphs, container_score}`（container_score 预留，暂为 null）：`cb fetch/export --json` 现在能自证「正文抽了多少」。
+- `cb history` 人读输出改相对时间：`刚刚 / 5m / 3h / 2d`（`ui.ago.now` 双语词条）。
+- 测试 `cli_meta.rs`：cache 是对象、extract.chars > 10、paragraphs ≥ 1。
 ### 试用报告 P1-1：懒加载图片属性链 + 占位图判定
 
 - 图片真实地址按优先级取：`srcset`（按描述符选最大）> `data-src` > `data-original` > `data-lazy-src` > `data-actualsrc` > `data-original-src` > `src`。

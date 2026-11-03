@@ -23,7 +23,7 @@ use cb_store::Store;
 
 pub use agent::{run as run_agent, AgentOpts, AgentRun};
 pub use ai::{complete, AiConfig, Completion, Provider};
-pub use envelope::{Envelope, Meta, ENGINE};
+pub use envelope::{CacheMeta, Envelope, ExtractMeta, Meta, ENGINE};
 pub use error::CbError;
 pub use fetch::{fetch_page, FetchOpts, FetchOutcome, Format};
 pub use login::{detect_login_wall, LoginWall, LoginWallKind};

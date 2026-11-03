@@ -8,8 +8,28 @@ pub fn meta(elapsed_ms: u64, cached: bool, profile: &str) -> Meta {
         engine: ENGINE.to_string(),
         elapsed_ms,
         cached,
+        cache: cb_core::CacheMeta {
+            hit: cached,
+            age_s: None,
+            stale: false,
+        },
+        extract: None,
         profile: profile.to_string(),
     }
+}
+
+/// 附上抽取统计：字符数 / 段落数，便于调用方判断正文质量。
+pub fn with_extract(mut meta: Meta, markdown: &str) -> Meta {
+    let paragraphs = markdown
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .count();
+    meta.extract = Some(cb_core::ExtractMeta {
+        chars: markdown.chars().count(),
+        paragraphs,
+        container_score: None,
+    });
+    meta
 }
 
 pub fn print_json(envelope: &Envelope) {
