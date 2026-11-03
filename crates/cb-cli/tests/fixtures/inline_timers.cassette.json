@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/timers",
+      "final_url": "https://example.com/timers",
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "body": "<html><head><title>Timers</title></head><body><main><h1>Timers</h1><p>Inline script schedules a timeout that changes the title, which only an event loop can observe.</p><script>setTimeout(function(){ document.title = 'Late Title'; }, 5);</script></main></body></html>"
+    }
+  ]
+}

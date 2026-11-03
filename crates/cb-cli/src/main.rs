@@ -162,6 +162,9 @@ enum Cmd {
         /// 依次执行页面内联脚本（跳过外链/JSON-LD）· Run inline scripts from the page
         #[arg(long)]
         run_inline: bool,
+        /// 跑事件循环的预算毫秒（定时器/微任务）· Event-loop budget in ms (timers/microtasks)
+        #[arg(long, default_value_t = 0, value_name = "MS")]
+        loop_ms: u64,
     },
 
     /// 插件清单/权限 · Plugins (manifest + permissions)
@@ -1525,9 +1528,11 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             replay,
             fetch,
             run_inline,
+            loop_ms,
         } => {
             let engine = cb_js::JsRuntime::new().map_err(|e| CbError::js(e.to_string()))?;
             let mut source_html = String::new();
+            let mut installed = false;
             if let Some(target) = url {
                 let opts = cb_core::FetchOpts {
                     url: target.clone(),
@@ -1541,6 +1546,13 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     .map_err(|e| CbError::js(e.to_string()))?;
                 engine
                     .install_bom(&outcome.final_url, "zh-CN")
+                    .map_err(|e| CbError::js(e.to_string()))?;
+                installed = true;
+            }
+            if !installed {
+                // 没有 URL 也装一份空文档：document/timers/console 的桩要一致存在。
+                engine
+                    .install_html("")
                     .map_err(|e| CbError::js(e.to_string()))?;
             }
             if !fetch.is_empty() {
@@ -1570,6 +1582,13 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                         ran += 1;
                     }
                 }
+                let timers = if *loop_ms > 0 {
+                    engine
+                        .run_event_loop(*loop_ms)
+                        .map_err(|e| CbError::js(e.to_string()))?
+                } else {
+                    0
+                };
                 let title = engine.eval("document.title").unwrap_or_default();
                 if cli.json {
                     let envelope = Envelope::ok(
@@ -1578,7 +1597,11 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                             false,
                             ctx.profile.as_str(),
                         ),
-                        serde_json::json!({ "scripts_run": ran, "title": title }),
+                        serde_json::json!({
+                            "scripts_run": ran,
+                            "timers_fired": timers,
+                            "title": title,
+                        }),
                     );
                     output::print_json(&envelope);
                 } else {
@@ -1589,6 +1612,13 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             let result = engine
                 .eval_with_timeout(&code, timeout_ms)
                 .map_err(|e| CbError::js(e.to_string()))?;
+            let timers = if *loop_ms > 0 {
+                engine
+                    .run_event_loop(*loop_ms)
+                    .map_err(|e| CbError::js(e.to_string()))?
+            } else {
+                0
+            };
             if cli.json {
                 let envelope = Envelope::ok(
                     output::meta(
@@ -1596,7 +1626,11 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                         false,
                         ctx.profile.as_str(),
                     ),
-                    serde_json::json!({ "code": code, "result": result }),
+                    serde_json::json!({
+                        "code": code,
+                        "result": result,
+                        "timers_fired": timers,
+                    }),
                 );
                 output::print_json(&envelope);
             } else {
