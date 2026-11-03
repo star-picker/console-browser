@@ -111,6 +111,9 @@ enum Cmd {
     /// 人工接力登录 · Human-in-the-loop login (browser window or paste cookies)
     Login(commands::login::LoginArgs),
 
+    /// 插件清单/权限 · Plugins (manifest + permissions)
+    Plugin(commands::plugin::PluginArgs),
+
     /// 本地 Web 镜像（SSE 推送同一份阅读视图）· Local web mirror over SSE
     Webui {
         /// 端口 · Port
@@ -1041,6 +1044,68 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             }
             Ok(0)
         }
+        Cmd::Plugin(args) => match &args.cmd {
+            commands::plugin::PluginCmd::Dir => {
+                println!("{}", cb_plugins::default_plugin_dir().display());
+                Ok(0)
+            }
+            commands::plugin::PluginCmd::List { dir } => {
+                let dir = dir.clone().unwrap_or_else(cb_plugins::default_plugin_dir);
+                let (plugins, errors) = cb_plugins::discover(&dir);
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "dir": dir.display().to_string(), "plugins": plugins, "errors": errors }),
+                    );
+                    output::print_json(&envelope);
+                } else if plugins.is_empty() {
+                    println!("{}", cb_core::i18n::t("ui.plugin_none"));
+                    println!("dir: {}", dir.display());
+                } else {
+                    for p in &plugins {
+                        println!(
+                            "{:<20} {:<10} [{}] {}",
+                            p.name,
+                            p.version,
+                            p.permissions.join(","),
+                            p.description
+                        );
+                    }
+                }
+                for e in &errors {
+                    eprintln!("skip: {e}");
+                }
+                Ok(0)
+            }
+            commands::plugin::PluginCmd::Info { name, dir } => {
+                let dir = dir.clone().unwrap_or_else(cb_plugins::default_plugin_dir);
+                let (plugins, _) = cb_plugins::discover(&dir);
+                let Some(p) = plugins.iter().find(|p| &p.name == name) else {
+                    return Err(CbError::not_found(format!("plugin not found: {name}")));
+                };
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::to_value(p).map_err(|e| CbError::other(e.to_string()))?,
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    println!("{} {}", p.name, p.version);
+                    println!("dir         : {}", p.dir);
+                    println!("permissions : {}", p.permissions.join(","));
+                    println!("description : {}", p.description);
+                }
+                Ok(0)
+            }
+        },
         Cmd::Webui { port, url } => {
             let addr = cb_webui::serve(ctx.clone(), *port, url.clone()).await?;
             println!("{addr}");

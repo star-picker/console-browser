@@ -159,6 +159,7 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
     ("ui.search", "搜索", "search"),
     ("ui.lines", "行", "lines"),
     ("ui.ago.now", "刚刚", "just now"),
+    ("ui.plugin_none", "还没有安装插件", "no plugins installed"),
     ("ui.status.cookie_imported", "已导入 cookie", "cookies imported"),
     ("ui.status.cookie_no_url", "没有可用的 URL，无法导入 cookie", "no url, cannot import cookies"),
     ("ui.status.command", "命令", "command"),

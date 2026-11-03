@@ -1,0 +1,15 @@
+[package]
+name = "cb-plugins"
+version.workspace = true
+edition.workspace = true
+description = "cb-plugins: manifest, permissions and loading for cb plugins"
+license.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+dirs = "7.0.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"

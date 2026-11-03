@@ -463,6 +463,7 @@ dependencies = [
  "cb-extract",
  "cb-mcp",
  "cb-net",
+ "cb-plugins",
  "cb-store",
  "cb-tui",
  "cb-webui",
@@ -562,6 +563,17 @@ dependencies = [
  "url",
  "wreq",
  "wreq-util",
+]
+
+[[package]]
+name = "cb-plugins"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

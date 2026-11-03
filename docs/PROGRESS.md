@@ -1,3 +1,12 @@
+### 设计文档 M5-1：插件系统（清单 + 权限 + 发现）
+
+- 新 crate `cb-plugins`：`plugin.json` schema（name/version/description/permissions/hooks.extract 声明式选择器）。
+- **权限默认全禁**：只认 `net | extract | challenge | command`，出现未知权限直接判为坏插件（fail closed）。
+- 名字安全校验：1..=64 字符、只允许 `[A-Za-z0-9._-]`、拒绝 `..` 与前缀点（防目录穿越）。
+- `discover()` 扫描插件目录，坏清单不致命：好插件照常加载，坏的进 `errors` 并打印 skip 原因。
+- CLI：`cb plugin list [--dir]`、`cb plugin info <name>`、`cb plugin dir`；JSON 带 `dir/plugins/errors`。
+- Ruling：**先落地清单+权限，再执行 JS** —— 没有权限模型就直接跑第三方 JS 是不负责任的；JS 宿主与 cb-js 共用同一 QuickJS 引擎，在下一步接上（插件声明式 extractor 钩子已可被后续执行器消费）。
+- 测试：名字/权限校验（含 `../evil`、`.hidden`、未知权限）、发现好插件与坏清单（1 good + 1 error）。
 ### 设计文档 M4：webui（SSE 镜像）落地
 
 - 新 crate `cb-webui`（axum）：`GET /` 单文件内嵌 HTML（零构建、零外链），`GET /events` 用 SSE 每 500ms 推一帧快照，`GET /api/state` 取当前快照，`POST /api/navigate` 抓页并更新。
