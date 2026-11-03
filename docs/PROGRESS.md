@@ -1,3 +1,10 @@
+### 日志统计：cb log stats
+
+- `cb-core::logging::stats(dir)`：汇总 jsonl 的条数、错误码分布、平均耗时、各命令次数；坏行跳过不影响统计。
+- 子命令识别会跳过全局旗标及其值（`--db/--lang/--profile/--timeout`），不会被数据库路径带偏。
+- CLI：`cb log stats`（人读）/ `--json`（LogStats 结构），空日志提示目录。
+- 实现中踩过：测试块被误放到模块外 + 重复 `use super::*`，已修。
+- 测试：一条（坏行跳过、命令计数、错误码、平均耗时）。
 ### cb-js 第四步：预取缓存版 fetch 桥
 
 - `install_fetch(entries)`：调用方先把 URL 抓成 `(url, body)`，脚本里的 `fetch(url)` 同步取缓存，返回 `{ok,status,text(),json(),then(cb)}` 形状；未预取的 URL 返回 404 形状。

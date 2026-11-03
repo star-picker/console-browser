@@ -1172,6 +1172,36 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 println!("{}", dir.display());
                 Ok(0)
             }
+            commands::log::LogCmd::Stats => {
+                let dir = cb_core::logging::logs_dir();
+                let stats = cb_core::logging::stats(&dir);
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::to_value(&stats).map_err(|e| CbError::other(e.to_string()))?,
+                    );
+                    output::print_json(&envelope);
+                } else if stats.lines == 0 {
+                    println!("{}", cb_core::i18n::t("ui.log_empty"));
+                    println!("dir: {}", dir.display());
+                } else {
+                    println!(
+                        "lines: {}  errors: {}  avg: {}ms",
+                        stats.lines, stats.errors, stats.avg_ms
+                    );
+                    for (cmd, n) in &stats.commands {
+                        println!("  {cmd:<16} {n}");
+                    }
+                    for (code, n) in &stats.error_codes {
+                        println!("  error {code:<12} {n}");
+                    }
+                }
+                Ok(0)
+            }
             commands::log::LogCmd::Tail { n } => {
                 let dir = cb_core::logging::logs_dir();
                 let mut files: Vec<_> = std::fs::read_dir(&dir)
