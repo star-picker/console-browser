@@ -7,6 +7,8 @@
 //! - fetch 走 cb-net（保留 TLS 指纹与 cookie），不直连网络。
 
 use anyhow::Result;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// 元素快照：够 querySelectorAll 做 id/class/tag 三种匹配。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -20,14 +22,43 @@ pub struct ElSnap {
 /// 一个 JS 运行时；一个上下文执行一个页面的脚本。
 pub struct JsRuntime {
     ctx: rquickjs::Context,
-    _rt: rquickjs::Runtime,
+    /// 保持运行时存活；QuickJS 的 context 依赖它。
+    #[allow(dead_code)]
+    rt: rquickjs::Runtime,
+    interrupted: Arc<AtomicBool>,
+    generation: Arc<AtomicU64>,
 }
 
 impl JsRuntime {
     pub fn new() -> Result<JsRuntime> {
         let rt = rquickjs::Runtime::new()?;
         let ctx = rquickjs::Context::full(&rt)?;
-        Ok(JsRuntime { ctx, _rt: rt })
+        let interrupted = Arc::new(AtomicBool::new(false));
+        let generation = Arc::new(AtomicU64::new(0));
+        let flag = interrupted.clone();
+        rt.set_interrupt_handler(Some(Box::new(move || flag.load(Ordering::Relaxed))));
+        Ok(JsRuntime {
+            ctx,
+            rt,
+            interrupted,
+            generation,
+        })
+    }
+
+    pub fn eval_with_timeout(&self, code: &str, timeout_ms: u64) -> Result<String> {
+        self.interrupted.store(false, Ordering::SeqCst);
+        let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let flag = self.interrupted.clone();
+        let gen_arc = self.generation.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(timeout_ms));
+            if gen_arc.load(Ordering::SeqCst) == gen {
+                flag.store(true, Ordering::SeqCst);
+            }
+        });
+        let out = self.eval(code);
+        self.interrupted.store(false, Ordering::SeqCst);
+        out
     }
 
     /// 装一个最小 DOM/BOM：document.title / document.body.innerText 可读，
@@ -176,6 +207,14 @@ mod tests {
         assert_eq!(rt.eval("'cb'.toUpperCase()").expect("eval"), "CB");
     }
 
+    #[test]
+    fn infinite_loop_is_interrupted() {
+        let rt = JsRuntime::new().expect("runtime");
+        let started = std::time::Instant::now();
+        assert!(rt.eval_with_timeout("while (true) {}", 60).is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+        assert_eq!(rt.eval("1 + 2").expect("alive"), "3");
+    }
     #[test]
     fn prefetched_fetch_serves_cached_bodies() {
         let rt = JsRuntime::new().expect("runtime");

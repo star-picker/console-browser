@@ -1336,7 +1336,11 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     .map_err(|e| CbError::js(e.to_string()))?;
             }
             let code = code.clone().unwrap_or_else(|| "document.title".to_string());
-            let result = engine.eval(&code).map_err(|e| CbError::js(e.to_string()))?;
+            // 脚本可能死循环：默认 5s 中断，可用全局 --timeout 调。
+            let timeout_ms = cli.timeout.unwrap_or(5_000);
+            let result = engine
+                .eval_with_timeout(&code, timeout_ms)
+                .map_err(|e| CbError::js(e.to_string()))?;
             if cli.json {
                 let envelope = Envelope::ok(
                     output::meta(
