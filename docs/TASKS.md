@@ -1,78 +1,61 @@
-# console-browser · 任务清单
+# 任务与状态
 
-做完打钩。分类看：建基 / 内核 / 接口 / 界面 / 质量。
+> 台账（为什么这么做、证据）在 [PROGRESS.md](PROGRESS.md)；这里只记状态。
+> 最后更新：目标第 15 轮（2026-11-03）
 
-## 建基（Foundation）
+## M1 无头内核
 
-- [x] T1 工作区骨架：workspace + 7 crate + 依赖落地（wreq 0.15.3 指纹栈可编译）
-- [x] NASM 工具链就位（BoringSSL 汇编编译所需）
-- [x] 本地 git 库 + 台账策略（`docs/PROGRESS.md`）
-- [x] 设计规格 + ADR 0001（TLS 指纹选型）
-- [x] `.gitattributes` 统一换行，消掉 CRLF 噪音
+- [x] CLI 骨架 + JSON 信封 + 退出码契约（usage/network/challenge/not_found/timeout/needs_auth/budget/parse_failed）
+- [x] cb-net：wreq + 指纹冒充（chrome/firefox/safari）+ cassette 回放/录制 + cookie jar
+- [x] cb-extract：正文评分、markdown、token 预算、图片（懒加载属性链 + 占位判定）、纯文本
+- [x] cb-store：sqlite（WAL，schema v6）pages/cache/history/logs/settings/llm_calls/ai_budget/challenge_events/cookies/tabs/bookmarks/page_revisions/site_strategy + FTS5 + DPAPI cookie 加密
+- [x] 搜索：ddg/bing/gh/arxiv + `--engine auto` 回退 + `empty_reason/http_status/bytes` 证据 + parse_failed 显性失败
+- [x] challenge 阶梯：403 → 换指纹 3 轮 + `challenge_events` + `cb challenge stats`（LLM 升级可开）
+- [x] AI：provider/记账/日预算；agent 最小循环
+- [x] MCP server（4 工具）+ `cb tools --json`（带 description）
+- [x] export：单文件 HTML / markdown / 纯文本；`cb plain`
+- [x] 双语 + **单语言整体切换**（CLI 帮助 + tools + TUI 全部文案）
+- [x] 版本号 `xx.yy.zz.YYYYMMDD.githash`
 
-## 内核（Kernel）
+## M2 阅读体验
 
-- [x] T2 cb-store：schema + 迁移 + 页面/缓存/历史/日志仓储（4 测试绿）
-- [x] T3 cb-net：指纹 profile + 回放/录制 + 缓存键归一化（2 测试绿）
-- [x] T4 cb-dom：解析 + CSS 选择 + 正文容器评分
-- [x] T4 cb-extract：正文 → markdown（标题/列表/表格/代码/引用/图片/链接）+ token 预算（5 测试绿）
-- [x] T5 fetch 管道：缓存 → 网络 → DOM → 提取 → 存库 → 历史 → 日志
+- [x] 浏览器式排版：限宽居中栏（≤92 列）、标题层级间距、段落呼吸、代码/引用/表格样式
+- [x] `cb render <url>` 离屏文本帧（无 GUI 时的自查/预览）
+- [x] 门户页不压平、JSON 数据不当正文、空 alt 图标不污染
 
-## 接口（Interfaces）
+## M3 界面
 
-- [x] T5 `cb fetch <url> --to md --json`：JSON 信封 + 退出码
-- [x] T6 ToolSpec 注册表（CLI / MCP / agent 共用一份 schema）
-- [x] T6 `cb selftest --json`：8 项机器可读检查
-- [x] T7 cb-mcp stdio：browse_url / history_search / selftest_status（search_web 延到 M2）
-- [x] T7 Hermes 接入文档 `docs/hermes-setup.md`
+- [x] 全屏 TUI：alternate screen、原地重绘、omnibox、链接焦点、找字、标签会话恢复、浮层（帮助/历史/链接/面板/AI/日志）、加载动画、Ctrl-C 取消、`?`/`cb:help` 呼出帮助
+- [x] 人工接力：Edge/Chrome + CDP（`cb login`、TUI `e`/`c`）+ 粘贴 Cookie 兜底（真浏览器链路见 docs/tui.md 手动清单）
+- [x] webui：axum + SSE 单文件前端，同状态镜像，浏览器式排版
+- [ ] 鼠标右键/双击等更细交互（当前滚轮+点击聚焦）
 
-## 质量（Quality）
+## M4 JS 引擎（cb-js，进行中）
 
-- [x] T8 测试台：cassette 回放 + e2e 脚本 + CI（离线）
-- [x] T8 README：安装、Hermes 配置、三个 `cb fetch` 例子
-- [x] T8 `cargo fmt --check` / `clippy -D warnings` 全绿
-
-## M2 搜索与 AI
-
-- [x] 搜索引擎适配（ddg / bing / gh / arxiv）+ `cb search` + MCP `search_web`（9 测试）
-- [x] cb-ai：provider（deepseek / openai-compatible / ollama）+ ledger + 预算闸（`cb ai config/usage/ask`）
-- [x] challenge 探测与策略阶梯：403 → 换指纹重试（最多 3 轮）+ `challenge_events` 记账 + `cb challenge stats`（403 → 换指纹 3 轮 → 可选 `--ai-escalate` 问模型要下一步；sampling 回调留 M3）
-- [x] agent 最小循环：`cb agent run`（模型出 JSON 动作 → 搜索/抓取 → 观察 → 答；步数/token 上限）
-- [x] `cb export --to html|md`（单文件 HTML：剥脚本/外链样式/内联事件，注入阅读样式；7 个测试）
-
-## M3 JS 与会话
-
-- [ ] cb-js：QuickJS + DOM/BOM 绑定子集 + fetch 桥回 cb-net
-- [ ] cb-session + daemon（命名管道、句柄 @eN、delta 快照）
+- [x] QuickJS 运行时 + `cb js` + `js_error` 错误码
+- [x] DOM 只读快照 + `querySelectorAll`（#id/.class/tag）
+- [x] BOM 桩：location/localStorage/navigator/console
+- [ ] **fetch 桥**（走 cb-net，保留指纹/cookie）
+- [ ] 完整 DOM 树（子树查询/属性写入/事件）+ 事件循环
 - [ ] JS 站验收：deepseek 分享页 / GitHub / 一个 SERP
-
-## M4 界面
-
-- [ ] TUI（科幻风、可配键位、命令面板、渲染快照测试）
-- [ ] webui（axum + SSE，单文件前端，同状态镜像）
 
 ## M5 插件
 
-- [ ] plugin.json + QuickJS 模块 + 权限门控
-- [ ] 站点适配器 / 挑战求解 hook 示例
+- [x] plugin.json schema + 权限白名单（fail closed）+ 目录发现 + `cb plugin list/info/dir`
+- [ ] 插件 JS 钩子执行（与 cb-js 共用引擎）+ 站点适配器/挑战 hook 示例
 
-## M6 打磨
+## M6 会话与打磨
 
-- [ ] 历史/缓存 UI、导出增强、性能守门、文档补完
-## M3-UI 全屏 TUI（已批准计划，进行中）
+- [ ] cb-session + daemon（命名管道、句柄 `@eN`、delta 快照）
+- [ ] AI 流式输出
+- [ ] MCP sampling 回调（挑战/AI 升级时问调用方）
+- [ ] 日志轮转（已做 jsonl+轮转+脱敏）之外的查询/统计
+- [ ] 性能守门与长文实测
 
-- [x] T0 依赖与骨架：cb-render / cb-tui / cb-assist + ratatui/crossterm/unicode-width/tokio-tungstenite
-- [x] 版本号 xx.yy.zz.YYYYMMDD.githash（build.rs 注入，含形状测试）
-- [x] T1 cb-extract 结构化 RenderDoc/Block/Span（markdown 链路原样未动，7 golden + 6 新测试全绿）
-- [x] T2 cb-core：FetchOutcome.doc、login::detect_login_wall、needs_login（5 单测 + 2 e2e）
-- [x] T3 cookie jar + store v3（tabs/bookmarks/cookies + SecretBox；DPAPI 留 T12）
-- [x] T4 cb-render 布局引擎（折行/CJK/表格/代码/链接索引，8 测试）
-- [x] T5 cb-tui 状态机与键位（mode/action/keymap/editbuffer/app/route，24 测试）
-- [x] T6 全屏屏幕与视图（alternate screen + RAII 恢复 + 整屏重绘 + TestBackend 快照 + 驱动循环 + cb tui 接线）
-- [x] T7 加载/错误页/需登录页 + Esc 取消（加载代数作废；错误页/需登录页有测试）
-- [x] T8 链接焦点环 / 查找 / 链接列表浮层（从文档链接填充）
-- [ ] T9 标签页与会话恢复
-- [x] T10 浮层：帮助/历史/命令面板/`: ` 命令行(spawn 自身)/AI/日志环
-- [ ] T11 人工接力（cb-assist + CDP + cb login/cookies）
-- [ ] T12 鼠标与打磨
-- [ ] T13 接线与文档
+## 已完成的旧计划（T0-T13）
+
+- [x] T0-T8、T10：骨架、版本戳、RenderDoc、登录墙、cookie jar、布局引擎、状态机、全屏视图、加载/错误页、链接焦点/查找/浮层
+- [x] T9 标签页与会话恢复（快照存 sqlite，启动恢复）
+- [x] T11 人工接力（cb-assist + CDP + `cb login`/`cb cookies`）
+- [x] T12 鼠标/`--no-mouse`/`--ascii`/`NO_COLOR`/小终端保护 + cookie DPAPI
+- [x] T13 接线与文档（TUI 默认、`cb shell`/`cb plain` 保留、docs/tui.md、README/TASKS/PROGRESS、CI 三门禁）
