@@ -40,7 +40,7 @@ fn matched_scope_that_does_not_shrink_is_still_matched() {
         scope: Some("body".to_string()),
         ..Default::default()
     };
-    let md = extract_markdown(&html, &opts).expect("extract");
+    let md = extract_markdown(html, &opts).expect("extract");
     let scope = md.scope.expect("scope receipt");
     assert!(scope.matched);
     assert_eq!(

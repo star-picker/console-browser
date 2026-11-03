@@ -675,12 +675,15 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     );
                 }
                 let envelope = Envelope::ok(
-                    output::with_extract(
-                        output::with_cache(
-                            output::meta(elapsed, outcome.cached, ctx.profile.as_str()),
-                            outcome.cache_age_s,
+                    output::with_attempts(
+                        output::with_extract(
+                            output::with_cache(
+                                output::meta(elapsed, outcome.cached, ctx.profile.as_str()),
+                                outcome.cache_age_s,
+                            ),
+                            &outcome,
                         ),
-                        &outcome,
+                        &outcome.attempts,
                     ),
                     data,
                 );
@@ -718,12 +721,15 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 outcome.markdown.clone()
             };
             let elapsed = started.elapsed().as_millis() as u64;
-            let meta = output::with_extract(
-                output::with_cache(
-                    output::meta(elapsed, outcome.cached, ctx.profile.as_str()),
-                    outcome.cache_age_s,
+            let meta = output::with_attempts(
+                output::with_extract(
+                    output::with_cache(
+                        output::meta(elapsed, outcome.cached, ctx.profile.as_str()),
+                        outcome.cache_age_s,
+                    ),
+                    &outcome,
                 ),
-                &outcome,
+                &outcome.attempts,
             );
             if let Some(path) = &args.out {
                 std::fs::write(path, &content)
@@ -1602,13 +1608,16 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             let text = cb_extract::to_plain_text(&outcome.markdown);
             if cli.json {
                 let envelope = Envelope::ok(
-                    output::with_cache(
-                        output::meta(
-                            started.elapsed().as_millis() as u64,
-                            outcome.cached,
-                            ctx.profile.as_str(),
+                    output::with_attempts(
+                        output::with_cache(
+                            output::meta(
+                                started.elapsed().as_millis() as u64,
+                                outcome.cached,
+                                ctx.profile.as_str(),
+                            ),
+                            outcome.cache_age_s,
                         ),
-                        outcome.cache_age_s,
+                        &outcome.attempts,
                     ),
                     serde_json::json!({ "url": outcome.final_url, "content": text }),
                 );

@@ -116,6 +116,7 @@ impl Response {
                 .cloned()
                 .collect(),
             body: String::from_utf8_lossy(&self.body).to_string(),
+            error: None,
         }
     }
 }
@@ -204,6 +205,9 @@ pub struct CassetteEntry {
     pub status: u16,
     pub headers: std::collections::BTreeMap<String, String>,
     pub body: String,
+    /// 回放时模拟失败：timeout / network / dns（测试重试与错误分类用）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -244,6 +248,26 @@ impl Cassette {
     }
 }
 
+/// 三个阶段分开的超时：连不上不该把总预算耗光。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timeouts {
+    pub connect: std::time::Duration,
+    pub read: std::time::Duration,
+    /// None = 不设客户端总超时（调用方自己套 outer timeout）。
+    pub total: Option<std::time::Duration>,
+}
+
+impl Default for Timeouts {
+    fn default() -> Timeouts {
+        Timeouts {
+            connect: std::time::Duration::from_secs(5),
+            read: std::time::Duration::from_secs(25),
+            total: None,
+        }
+    }
+}
+
+#[derive(Clone)]
 enum Backend {
     Live {
         client: wreq::Client,
@@ -252,24 +276,40 @@ enum Backend {
     Replay(Cassette),
 }
 
+/// 克隆是轻量的：底层 client/cassette 共享，回放游标也共享。
+/// 一次 fetch 的多次尝试因此能消费同一条 cassette 里的序列。
+#[derive(Clone)]
 pub struct NetClient {
     backend: Backend,
     /// 可选 cookie jar：发请求时带上、收响应时落库。
     cookie_store: Option<std::sync::Arc<dyn cookies::CookieStore>>,
     /// 录制模式下累计的响应，供 `--record` 落盘。
-    record: std::sync::Mutex<Option<Cassette>>,
+    record: std::sync::Arc<std::sync::Mutex<Option<Cassette>>>,
+    /// 回放游标：同一 URL 可以录多条（成功/失败/超时），按顺序消费。
+    replay_cursor: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, usize>>>,
 }
 
 impl NetClient {
     pub fn new(profile: Profile) -> Result<NetClient, NetError> {
-        let client = wreq::Client::builder()
+        NetClient::new_with_timeouts(profile, Timeouts::default())
+    }
+
+    pub fn new_with_timeouts(profile: Profile, timeouts: Timeouts) -> Result<NetClient, NetError> {
+        let mut builder = wreq::Client::builder()
             .emulation(profile.emulation())
+            .connect_timeout(timeouts.connect)
+            .read_timeout(timeouts.read);
+        if let Some(total) = timeouts.total {
+            builder = builder.timeout(total);
+        }
+        let client = builder
             .build()
             .map_err(|e| NetError::Network(format!("build client: {e}")))?;
         Ok(NetClient {
             backend: Backend::Live { client, profile },
             cookie_store: None,
-            record: std::sync::Mutex::new(None),
+            record: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            replay_cursor: std::sync::Arc::new(std::sync::Mutex::default()),
         })
     }
 
@@ -277,7 +317,8 @@ impl NetClient {
         Ok(NetClient {
             backend: Backend::Replay(Cassette::load(path)?),
             cookie_store: None,
-            record: std::sync::Mutex::new(None),
+            record: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            replay_cursor: std::sync::Arc::new(std::sync::Mutex::default()),
         })
     }
 
@@ -368,11 +409,30 @@ impl NetClient {
     pub async fn get(&self, req: &Request) -> Result<Response, NetError> {
         match &self.backend {
             Backend::Replay(cassette) => {
-                let entry = cassette
+                let index = {
+                    let mut cursor = self.replay_cursor.lock().unwrap_or_else(|e| e.into_inner());
+                    let slot = cursor.entry(req.url.clone()).or_insert(0);
+                    let index = *slot;
+                    *slot += 1;
+                    index
+                };
+                let matches: Vec<&CassetteEntry> = cassette
                     .entries
                     .iter()
-                    .find(|e| e.url == req.url)
-                    .ok_or_else(|| NetError::NotRecorded(req.url.clone()))?;
+                    .filter(|e| e.url == req.url)
+                    .collect();
+                if matches.is_empty() {
+                    return Err(NetError::NotRecorded(req.url.clone()));
+                }
+                // 条目用完后重复最后一条：同一响应回放 N 次（bench 会用到）。
+                let entry = matches[index.min(matches.len() - 1)];
+                if let Some(kind) = &entry.error {
+                    return Err(match kind.as_str() {
+                        "timeout" => NetError::Timeout(format!("replayed timeout for {}", req.url)),
+                        "dns" => NetError::Dns(format!("DNS lookup failed for {}", req.url)),
+                        other => NetError::Network(format!("replayed {other} for {}", req.url)),
+                    });
+                }
                 Ok(Response {
                     status: entry.status,
                     headers: entry

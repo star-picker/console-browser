@@ -15,7 +15,14 @@ pub fn meta(elapsed_ms: u64, cached: bool, profile: &str) -> Meta {
         },
         extract: None,
         profile: profile.to_string(),
+        attempts: Vec::new(),
     }
+}
+
+/// 附上抓取尝试回执（换过几个指纹、各花多久）。
+pub fn with_attempts(mut meta: Meta, attempts: &[cb_core::FetchAttempt]) -> Meta {
+    meta.attempts = attempts.to_vec();
+    meta
 }
 
 /// 填上真实的缓存年龄（秒）。meta 里放真值，别让调用方去 data 里猜。
@@ -49,7 +56,8 @@ pub fn print_json(envelope: &Envelope) {
 
 pub fn report_error(err: &CbError, json: bool, elapsed_ms: u64, profile: &str) {
     if json {
-        print_json(&Envelope::err(meta(elapsed_ms, false, profile), err));
+        let meta = with_attempts(meta(elapsed_ms, false, profile), &err.body.attempts);
+        print_json(&Envelope::err(meta, err));
     } else {
         eprintln!("cb: {}: {}", err.body.code, err.body.message);
         if let Some(hint) = &err.body.needs_user {

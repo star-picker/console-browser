@@ -17,6 +17,9 @@ pub struct ErrorBody {
     /// 服务端建议的重试等待秒数（429 用；其他错误不带这个字段）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_after_s: Option<u64>,
+    /// 抓取尝试明细；只进 meta.attempts，不进 error（同一事实不放两处）。
+    #[serde(skip)]
+    pub attempts: Vec<crate::fetch::FetchAttempt>,
     pub needs_user: Option<NeedsUser>,
 }
 
@@ -46,6 +49,7 @@ impl CbError {
                 message: message.into(),
                 retryable,
                 retry_after_s: None,
+                attempts: Vec::new(),
                 needs_user: None,
             },
         }

@@ -44,6 +44,9 @@ pub struct Meta {
     pub cache: CacheMeta,
     pub extract: Option<ExtractMeta>,
     pub profile: String,
+    /// fetch 试过的指纹与各自耗时；其他命令为空（不输出空数组）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attempts: Vec<crate::fetch::FetchAttempt>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

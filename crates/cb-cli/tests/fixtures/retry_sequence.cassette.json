@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/flaky",
+      "final_url": "https://example.com/flaky",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    },
+    {
+      "url": "https://example.com/flaky",
+      "final_url": "https://example.com/flaky",
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "max-age=600"
+      },
+      "body": "<html><head><title>Flaky Page</title></head><body><main><h1>Recovered</h1><p>This content is long enough for the main content scorer to accept it as the real article body instead of navigation.</p></main></body></html>"
+    }
+  ]
+}

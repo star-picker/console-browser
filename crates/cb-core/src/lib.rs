@@ -26,7 +26,7 @@ pub use agent::{run as run_agent, AgentOpts, AgentRun};
 pub use ai::{complete, AiConfig, Completion, Provider};
 pub use envelope::{CacheMeta, Envelope, ExtractMeta, Meta, ENGINE};
 pub use error::CbError;
-pub use fetch::{fetch_page, FetchOpts, FetchOutcome, Format};
+pub use fetch::{fetch_page, FetchAttempt, FetchOpts, FetchOutcome, Format};
 pub use login::{detect_login_wall, LoginWall, LoginWallKind};
 pub use search::{
     search, search_report, Attempt, EmptyReason, Engine, SearchOpts, SearchReport, SearchResult,

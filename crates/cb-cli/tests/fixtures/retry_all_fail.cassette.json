@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/flaky",
+      "final_url": "https://example.com/flaky",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    },
+    {
+      "url": "https://example.com/flaky",
+      "final_url": "https://example.com/flaky",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    },
+    {
+      "url": "https://example.com/flaky",
+      "final_url": "https://example.com/flaky",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    }
+  ]
+}

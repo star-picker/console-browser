@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/missing",
+      "final_url": "https://example.com/missing",
+      "status": 404,
+      "headers": {
+        "content-type": "text/html"
+      },
+      "body": "not found"
+    }
+  ]
+}

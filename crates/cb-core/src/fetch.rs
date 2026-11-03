@@ -64,6 +64,47 @@ impl Default for FetchOpts {
     }
 }
 
+/// 一次抓取尝试的回执：给调用方看「换过指纹没有、每次多久、错在哪」。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FetchAttempt {
+    pub profile: String,
+    pub ok: bool,
+    pub ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl FetchAttempt {
+    pub fn failed(profile: cb_net::Profile, ms: u64, err: &CbError) -> FetchAttempt {
+        FetchAttempt {
+            profile: profile.as_str().to_string(),
+            ok: false,
+            ms,
+            error: Some(err.body.code.clone()),
+        }
+    }
+
+    pub fn label(&self) -> String {
+        format!(
+            "{}:{}",
+            self.profile,
+            self.error.clone().unwrap_or_else(|| "ok".to_string())
+        )
+    }
+}
+
+/// 三段超时：连接 5s，读取 25s，总预算跟随 --timeout。
+pub fn fetch_timeouts(total_ms: u64) -> cb_net::Timeouts {
+    let total = std::time::Duration::from_millis(total_ms.max(1));
+    let connect = std::time::Duration::from_millis(total_ms.clamp(1_000, 5_000));
+    let read = std::time::Duration::from_millis(total_ms.saturating_sub(5_000).max(1_000));
+    cb_net::Timeouts {
+        connect,
+        read,
+        total: Some(total),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FetchOutcome {
     pub url: String,
@@ -91,6 +132,9 @@ pub struct FetchOutcome {
     /// --scope 回执（meta.extract.scope 的来源，不进 data）。
     #[serde(skip)]
     pub scope: Option<cb_extract::ScopeReport>,
+    /// 试过哪些指纹、各自耗时（meta.attempts 的来源，不进 data）。
+    #[serde(skip)]
+    pub attempts: Vec<FetchAttempt>,
 }
 
 /// 解析 Cache-Control: max-age=N，失败返回默认 TTL。
@@ -196,78 +240,137 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
         .and_then(|u| u.host_str().map(|h| h.to_string()))
         .unwrap_or_else(|| "unknown".to_string());
 
-    // 反爬阶梯：403 就换一个浏览器指纹再试，最多三轮，全程留痕。
+    // 失败阶梯：换指纹 + 指数退避，全程留痕。
+    // 只重试 network/timeout；404/429/DNS/403 立即换指纹或直接失败。
     let mut resp = None;
-    let mut last_challenge: Option<CbError> = None;
+    let mut last_error: Option<CbError> = None;
     let mut last_challenge_body: Option<String> = None;
-    for (attempt, profile) in challenge_ladder(ctx.profile).into_iter().enumerate() {
-        let client = match &opts.replay {
-            Some(path) => cb_net::NetClient::replay(path)?,
-            None => cb_net::NetClient::new(profile)?.with_cookie_store(ctx.cookies.clone()),
+    let mut attempts: Vec<FetchAttempt> = Vec::new();
+    let ladder = profile_ladder(ctx.profile);
+    let backoff_ms = [500u64, 1500u64];
+    let timeouts = fetch_timeouts(opts.timeout_ms);
+    let all_started = std::time::Instant::now();
+    // 回放客户端只建一次：同一 URL 的多条 cassette 条目按尝试顺序消费。
+    let replay_client = match &opts.replay {
+        Some(path) => Some(cb_net::NetClient::replay(path)?),
+        None => None,
+    };
+    for (attempt, profile) in ladder.iter().copied().enumerate() {
+        let client = match &replay_client {
+            Some(c) => c.clone(),
+            None => cb_net::NetClient::new_with_timeouts(profile, timeouts)?
+                .with_cookie_store(ctx.cookies.clone()),
         };
-        if attempt == 0 {
-            if let Some(path) = &opts.record {
-                client.start_recording();
-                tracing::debug!(path = %path.display(), "recording enabled");
-            }
+        if let Some(path) = &opts.record {
+            client.start_recording();
+            tracing::debug!(path = %path.display(), "recording enabled");
         }
         let request = cb_net::Request::get(opts.url.clone());
-        let attempt_resp = match tokio::time::timeout(
+        let started = std::time::Instant::now();
+        let sent = tokio::time::timeout(
             std::time::Duration::from_millis(opts.timeout_ms),
             client.get(&request),
         )
-        .await
-        {
-            Err(_) => {
-                return Err(CbError::timeout(format!(
-                    "no response within {}ms",
-                    opts.timeout_ms
-                )))
-            }
-            Ok(Err(e)) => return Err(e.into()),
-            Ok(Ok(r)) => r,
+        .await;
+        let ms = started.elapsed().as_millis() as u64;
+        let result: Result<cb_net::Response, CbError> = match sent {
+            Err(_) => Err(CbError::timeout(format!(
+                "no response within {}ms",
+                opts.timeout_ms
+            ))),
+            Ok(Err(e)) => Err(e.into()),
+            Ok(Ok(r)) => Ok(r),
         };
 
-        let strategy = format!("rotate-profile:{}", profile.as_str());
-        if attempt_resp.status == 403 {
-            let _ = ctx.store.record_challenge(&cb_store::ChallengeEvent {
-                ts: ctx.now(),
-                domain: domain.clone(),
-                kind: "http-403".to_string(),
-                strategy,
-                ok: false,
-                detail: Some(format!("attempt {}", attempt + 1)),
-            });
-            last_challenge_body = Some(decode_body(&attempt_resp.body, &attempt_resp.headers));
-            last_challenge = Some(status_error(
-                attempt_resp.status,
-                &opts.url,
-                &attempt_resp.headers,
-            ));
-            continue;
+        match result {
+            Err(err) => {
+                attempts.push(FetchAttempt::failed(profile, ms, &err));
+                let retry = err.body.retryable;
+                last_error = Some(err);
+                if retry && attempt + 1 < ladder.len() {
+                    let wait = backoff_ms[attempt.min(backoff_ms.len() - 1)];
+                    tracing::debug!(
+                        profile = profile.as_str(),
+                        wait_ms = wait,
+                        "retrying after retryable failure"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+                    continue;
+                }
+                break;
+            }
+            Ok(attempt_resp) if attempt_resp.status == 403 => {
+                let strategy = format!("rotate-profile:{}", profile.as_str());
+                let _ = ctx.store.record_challenge(&cb_store::ChallengeEvent {
+                    ts: ctx.now(),
+                    domain: domain.clone(),
+                    kind: "http-403".to_string(),
+                    strategy,
+                    ok: false,
+                    detail: Some(format!("attempt {}", attempt + 1)),
+                });
+                last_challenge_body = Some(decode_body(&attempt_resp.body, &attempt_resp.headers));
+                let err = status_error(attempt_resp.status, &opts.url, &attempt_resp.headers);
+                attempts.push(FetchAttempt::failed(profile, ms, &err));
+                last_error = Some(err);
+                // 403 换指纹继续；挑战不是「太快了」，不加退避。
+                if attempt + 1 < ladder.len() {
+                    continue;
+                }
+                break;
+            }
+            Ok(attempt_resp) if attempt_resp.status >= 400 => {
+                let err = status_error(attempt_resp.status, &opts.url, &attempt_resp.headers);
+                attempts.push(FetchAttempt::failed(profile, ms, &err));
+                last_error = Some(err);
+                // 404/429 这类状态码重试也是同一个答案，直接失败。
+                break;
+            }
+            Ok(attempt_resp) => {
+                attempts.push(FetchAttempt {
+                    profile: profile.as_str().to_string(),
+                    ok: true,
+                    ms,
+                    error: None,
+                });
+                if attempt > 0 {
+                    let strategy = format!("rotate-profile:{}", profile.as_str());
+                    let _ = ctx.store.record_challenge(&cb_store::ChallengeEvent {
+                        ts: ctx.now(),
+                        domain: domain.clone(),
+                        kind: "http-403".to_string(),
+                        strategy,
+                        ok: true,
+                        detail: Some(format!("succeeded on attempt {}", attempt + 1)),
+                    });
+                }
+                if let Some(path) = &opts.record {
+                    client.save_recording(path)?;
+                }
+                resp = Some(attempt_resp);
+                break;
+            }
         }
-
-        if attempt > 0 {
-            let _ = ctx.store.record_challenge(&cb_store::ChallengeEvent {
-                ts: ctx.now(),
-                domain: domain.clone(),
-                kind: "http-403".to_string(),
-                strategy,
-                ok: true,
-                detail: Some(format!("succeeded on attempt {}", attempt + 1)),
-            });
-        }
-        if let Some(path) = &opts.record {
-            client.save_recording(path)?;
-        }
-        resp = Some(attempt_resp);
-        break;
     }
 
     let resp = match resp {
         Some(r) => r,
         None => {
-            let mut err = last_challenge.unwrap_or_else(|| CbError::other("no attempt ran"));
+            let mut err = last_error.unwrap_or_else(|| CbError::other("no attempt ran"));
+            // 全部失败时把「试过谁、各自错在哪」写进 message，读不到 attempts 的调用方也能懂。
+            if attempts.len() > 1 {
+                let summary = attempts
+                    .iter()
+                    .map(FetchAttempt::label)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                err.body.message = format!(
+                    "all {} profiles failed after {:.0}s ({summary}): {}",
+                    attempts.len(),
+                    all_started.elapsed().as_secs_f64(),
+                    err.body.message
+                );
+            }
             // 最后一阶：模型看挑战页给建议（默认关闭，显式 --ai-escalate 才走）。
             if opts.ai_escalate {
                 if let Some(body) = last_challenge_body {
@@ -298,6 +401,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
                     }
                 }
             }
+            err.body.attempts = attempts;
             return Err(err);
         }
     };
@@ -317,7 +421,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
     }
     let body_text = decode_body(&resp.body, &resp.headers);
 
-    let outcome = build_outcome(
+    let mut outcome = build_outcome(
         ctx,
         opts,
         &opts.url,
@@ -329,6 +433,7 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
         None,
         jar_has_session,
     )?;
+    outcome.attempts = attempts;
 
     let ttl = cache_ttl_secs(&resp.headers);
     if ttl > 0 {
@@ -465,6 +570,7 @@ fn build_outcome(
         login,
         container_score: md.container_score,
         scope: md.scope.clone(),
+        attempts: Vec::new(),
         url: requested_url.to_string(),
         final_url: final_url.to_string(),
         status,
@@ -557,8 +663,8 @@ pub fn decode_body(body: &[u8], headers: &[(String, String)]) -> String {
     }
     String::from_utf8_lossy(body).into_owned()
 }
-/// 指纹阶梯：先用用户选的，再试另外两个。
-fn challenge_ladder(preferred: cb_net::Profile) -> Vec<cb_net::Profile> {
+/// 指纹阶梯：先用用户选的（默认 chrome），再试另外两个。
+fn profile_ladder(preferred: cb_net::Profile) -> Vec<cb_net::Profile> {
     let all = [
         cb_net::Profile::Chrome,
         cb_net::Profile::Firefox,
@@ -673,6 +779,37 @@ mod tests {
                 .any(|h| h.contains("expired") || h.contains("refresh")),
             "hints: {:?}",
             wall.hints
+        );
+    }
+
+    #[test]
+    fn timeouts_split_connect_read_and_total() {
+        let t = fetch_timeouts(DEFAULT_TIMEOUT_MS);
+        assert_eq!(t.connect, std::time::Duration::from_secs(5));
+        assert_eq!(t.read, std::time::Duration::from_secs(25));
+        assert_eq!(
+            t.total,
+            Some(std::time::Duration::from_millis(DEFAULT_TIMEOUT_MS))
+        );
+
+        // --timeout 覆盖总预算：连接仍然最多 5s，读取吃掉剩余的。
+        let long = fetch_timeouts(60_000);
+        assert_eq!(long.connect, std::time::Duration::from_secs(5));
+        assert_eq!(long.read, std::time::Duration::from_secs(55));
+        assert_eq!(long.total, Some(std::time::Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn profile_ladder_starts_with_requested_then_others() {
+        use cb_net::Profile;
+        assert_eq!(
+            profile_ladder(Profile::Chrome),
+            vec![Profile::Chrome, Profile::Firefox, Profile::Safari]
+        );
+        assert_eq!(
+            profile_ladder(Profile::Safari),
+            vec![Profile::Safari, Profile::Chrome, Profile::Firefox],
+            "explicit profile goes first, then the rest"
         );
     }
 }

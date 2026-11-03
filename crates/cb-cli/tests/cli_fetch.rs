@@ -440,6 +440,112 @@ fn http_429_without_retry_after_defaults_to_five_seconds() {
 }
 
 #[test]
+fn retryable_failure_switches_profile_and_reports_attempts() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("retry_sequence.cassette.json");
+    let out = cb(&dir)
+        .args(["fetch", "https://example.com/flaky", "--replay", &cassette])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    assert_eq!(v["ok"], true, "{v}");
+    let attempts = v["meta"]["attempts"].as_array().expect("meta.attempts");
+    assert_eq!(attempts.len(), 2, "one failure + one success: {v}");
+    assert_eq!(attempts[0]["profile"], "chrome", "{v}");
+    assert_eq!(attempts[0]["ok"], false, "{v}");
+    assert_eq!(attempts[0]["error"], "timeout", "{v}");
+    assert_eq!(attempts[1]["profile"], "firefox", "{v}");
+    assert_eq!(attempts[1]["ok"], true, "{v}");
+    assert!(
+        attempts[1].get("error").is_none_or(|e| e.is_null()),
+        "successful attempt has no error: {v}"
+    );
+}
+
+#[test]
+fn all_profiles_failing_reports_three_attempts_and_total_time() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("retry_all_fail.cassette.json");
+    let out = cb(&dir)
+        .args(["fetch", "https://example.com/flaky", "--replay", &cassette])
+        .assert()
+        .code(7)
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"]["code"], "timeout", "{v}");
+    let attempts = v["meta"]["attempts"].as_array().expect("meta.attempts");
+    assert_eq!(attempts.len(), 3, "must try all three profiles: {v}");
+    let profiles: Vec<&str> = attempts
+        .iter()
+        .map(|a| a["profile"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(profiles, vec!["chrome", "firefox", "safari"], "{v}");
+    let message = v["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("all 3 profiles failed"),
+        "message must aggregate attempts: {message}"
+    );
+    assert!(message.contains("chrome:timeout"), "{message}");
+}
+
+#[test]
+fn not_found_is_not_retried() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("not_found.cassette.json");
+    let out = cb(&dir)
+        .args([
+            "fetch",
+            "https://example.com/missing",
+            "--replay",
+            &cassette,
+        ])
+        .assert()
+        .code(6)
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    assert_eq!(v["error"]["code"], "not_found", "{v}");
+    let attempts = v["meta"]["attempts"].as_array().expect("meta.attempts");
+    assert_eq!(attempts.len(), 1, "404 must not be retried: {v}");
+}
+
+#[test]
+#[ignore = "needs a network stack (uses a blackhole IP to prove connect_timeout)"]
+fn connect_timeout_fails_fast_on_blackhole_ip() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let started = std::time::Instant::now();
+    let out = cb(&dir)
+        .args(["fetch", "https://10.255.255.1/", "--fresh"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let elapsed = started.elapsed();
+    let v = parse(&out);
+    let attempts = v["meta"]["attempts"].as_array().expect("meta.attempts");
+    assert!(!attempts.is_empty());
+    for a in attempts {
+        let ms = a["ms"].as_u64().unwrap_or(u64::MAX);
+        assert!(
+            ms < 8_000,
+            "connect timeout 5s must cut each attempt short, got {ms}ms: {v}"
+        );
+    }
+    assert!(
+        elapsed < std::time::Duration::from_secs(40),
+        "whole ladder must not run for minutes: {elapsed:?}"
+    );
+}
+
+#[test]
 #[ignore = "needs a real DNS lookup (offline CI cannot resolve anything)"]
 fn missing_domain_reports_dns_error_not_network() {
     let dir = tempfile::tempdir().expect("tempdir");
