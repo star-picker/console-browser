@@ -84,11 +84,7 @@ fn pick_srcset(srcset: &str) -> Option<String> {
         let Some(url) = it.next() else { continue };
         let weight = it
             .next()
-            .and_then(|d| {
-                d.trim_end_matches(|c: char| c == 'w' || c == 'x')
-                    .parse::<f32>()
-                    .ok()
-            })
+            .and_then(|d| d.trim_end_matches(['w', 'x']).parse::<f32>().ok())
             .unwrap_or(0.0);
         let url = url.trim();
         if url.is_empty() {
