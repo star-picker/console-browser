@@ -32,6 +32,7 @@ pub const EXIT_NOT_FOUND: i32 = 6;
 pub const EXIT_TIMEOUT: i32 = 7;
 pub const EXIT_NEEDS_AUTH: i32 = 8;
 pub const EXIT_BUDGET: i32 = 9;
+pub const EXIT_PARSE: i32 = 10;
 pub const EXIT_OTHER: i32 = 1;
 
 impl CbError {
@@ -116,6 +117,11 @@ impl CbError {
         CbError::new("response_too_large", message, false)
     }
 
+    /// SERP/正文解析失败：页面拿到了但解析不出结构（选择器失效、拦截页）。
+    pub fn parse_failed(message: impl Into<String>) -> CbError {
+        CbError::new("parse_failed", message, false)
+    }
+
     pub fn other(message: impl Into<String>) -> CbError {
         CbError::new("error", message, false)
     }
@@ -130,6 +136,7 @@ impl CbError {
             "timeout" => EXIT_TIMEOUT,
             "needs_auth" | "needs_login" => EXIT_NEEDS_AUTH,
             "budget_exhausted" => EXIT_BUDGET,
+            "parse_failed" => EXIT_PARSE,
             _ => EXIT_OTHER,
         }
     }
@@ -176,6 +183,7 @@ mod tests {
             ("timeout", EXIT_TIMEOUT),
             ("needs_auth", EXIT_NEEDS_AUTH),
             ("budget_exhausted", EXIT_BUDGET),
+            ("parse_failed", EXIT_PARSE),
             ("response_too_large", EXIT_OTHER),
             ("error", EXIT_OTHER),
         ];

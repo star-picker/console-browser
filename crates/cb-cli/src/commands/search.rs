@@ -7,7 +7,7 @@ pub struct SearchArgs {
     /// 查询词 / Query string
     pub query: String,
 
-    /// 引擎 · Engine: ddg | bing | gh | arxiv
+    /// 引擎 · Engine: auto | ddg | bing | gh | arxiv
     #[arg(long, default_value = "ddg", value_name = "E")]
     pub engine: String,
 

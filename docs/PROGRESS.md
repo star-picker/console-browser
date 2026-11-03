@@ -1,3 +1,11 @@
+### 试用报告 P0：搜索零结果可区分 + engine auto 回退
+
+- `cb search` 现在带自证字段：`empty_reason`（`no_results` / `parse_failed` / `blocked`）、`http_status`、`bytes`、`attempts`。
+- **解析失效不再伪装成功**：HTTP 200 + 正文 >10KB + 解析 0 条 → `parse_failed`，CLI 直接以退出码 **10** 失败（`error.code=parse_failed`），不会再出现 `ok:true, results:[]`。
+- 拦截页识别：403/429/451/503、正文 <512B、或出现 captcha / unusual traffic / verify you are human → `blocked`。
+- `--engine auto`：`gh → bing → ddg → arxiv` 逐个试，第一个有结果就返回；单引擎超时压到 6s，连不上就换下一个（不再白等 21s）；`attempts` 里记录每个引擎的结果数/原因/错误。
+- 错误码表新增 `parse_failed → 10`（契约测试同步）。
+- 测试：`cli_search` 新增 2 条（大 body 零结果→10；空壳 SERP→`blocked` 且带证据），search 单元测试 3 条（归因、challenge 文本、auto 顺序）。
 ### 阅读排版（浏览器式）+ 离屏预览 `cb render`
 
 - 新增 `cb render <url> --width 120 --height 40 [--replay]`：同一套 bevy-free 渲染器离屏出一帧纯文本，等于「没有 GUI 时的截图」，我和用户都能直接看排版。

@@ -74,6 +74,47 @@ pub struct SearchOpts {
     pub limit: usize,
     pub replay: Option<PathBuf>,
     pub timeout_ms: u64,
+    /// true: 按 gh -> bing -> ddg -> arxiv 逐个试，第一个有结果的返回。
+    pub auto: bool,
+}
+
+/// 零结果的原因：调用方据此判断「是没结果」还是「我们坏了」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EmptyReason {
+    NoResults,
+    ParseFailed,
+    Blocked,
+}
+
+impl EmptyReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EmptyReason::NoResults => "no_results",
+            EmptyReason::ParseFailed => "parse_failed",
+            EmptyReason::Blocked => "blocked",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Attempt {
+    pub engine: Engine,
+    pub results: usize,
+    pub empty_reason: Option<EmptyReason>,
+    pub error: Option<String>,
+}
+
+/// 一次搜索的完整结果：结果 + 自证字段（零结果为什么零）。
+#[derive(Debug, Clone)]
+pub struct SearchReport {
+    pub engine: Engine,
+    pub query: String,
+    pub results: Vec<SearchResult>,
+    pub empty_reason: Option<EmptyReason>,
+    pub http_status: u16,
+    pub bytes: usize,
+    pub attempts: Vec<Attempt>,
 }
 
 impl SearchOpts {
@@ -84,6 +125,7 @@ impl SearchOpts {
             limit: 10,
             replay: None,
             timeout_ms: 30_000,
+            auto: false,
         }
     }
 }
@@ -267,8 +309,206 @@ pub fn parse_results(
     })
 }
 
-/// 跑一次搜索：网络（或回放）→ 解析 → 结构化结果。
+/// 零结果归因：拦截页/解析失效/真没结果，三者必须能分开。
+pub fn classify_empty(status: u16, bytes: usize, parsed: usize) -> Option<EmptyReason> {
+    if parsed > 0 {
+        return None;
+    }
+    if matches!(status, 403 | 429 | 451 | 503) {
+        return Some(EmptyReason::Blocked);
+    }
+    if bytes < 512 {
+        return Some(EmptyReason::Blocked);
+    }
+    if bytes > 10_000 {
+        return Some(EmptyReason::ParseFailed);
+    }
+    Some(EmptyReason::NoResults)
+}
+
+fn challenge_like(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    [
+        "captcha",
+        "unusual traffic",
+        "verify you are human",
+        "cf-challenge",
+    ]
+    .iter()
+    .any(|m| lower.contains(m))
+}
+
+async fn search_once(
+    ctx: &Ctx,
+    engine: Engine,
+    opts: &SearchOpts,
+) -> Result<SearchReport, CbError> {
+    let url = engine.url(&opts.query, opts.limit);
+    let client = match &opts.replay {
+        Some(path) => cb_net::NetClient::replay(path)?,
+        None => cb_net::NetClient::new(ctx.profile)?,
+    };
+    let request = cb_net::Request::get(url.clone())
+        .header("accept", "text/html,application/json,application/atom+xml");
+    let resp = match tokio::time::timeout(
+        std::time::Duration::from_millis(opts.timeout_ms),
+        client.get(&request),
+    )
+    .await
+    {
+        Err(_) => {
+            return Err(CbError::timeout(format!(
+                "search timed out after {}ms",
+                opts.timeout_ms
+            )))
+        }
+        Ok(Err(e)) => return Err(e.into()),
+        Ok(Ok(r)) => r,
+    };
+    let bytes = resp.body.len();
+    if resp.status >= 400 {
+        return Err(match resp.status {
+            403 | 429 => CbError::challenge(
+                format!("{} blocked with http {}", engine.as_str(), resp.status),
+                &url,
+                "rotate profile, slow down, or hand off to the calling agent",
+            ),
+            404 => CbError::not_found(format!("{} endpoint 404", engine.as_str())),
+            s => CbError::network(format!("{} http {s}", engine.as_str())),
+        });
+    }
+    let body = crate::fetch::decode_body(&resp.body, &resp.headers);
+    if challenge_like(&body) {
+        return Ok(SearchReport {
+            engine,
+            query: opts.query.clone(),
+            results: Vec::new(),
+            empty_reason: Some(EmptyReason::Blocked),
+            http_status: resp.status,
+            bytes,
+            attempts: Vec::new(),
+        });
+    }
+    let results = parse_results(engine, &body, opts.limit)?;
+    let empty_reason = classify_empty(resp.status, bytes, results.len());
+    Ok(SearchReport {
+        engine,
+        query: opts.query.clone(),
+        results,
+        empty_reason,
+        http_status: resp.status,
+        bytes,
+        attempts: Vec::new(),
+    })
+}
+
+/// 完整报告（带自证字段）；auto 时逐个引擎回退。
+pub async fn search_report(ctx: &Ctx, opts: &SearchOpts) -> Result<SearchReport, CbError> {
+    if opts.query.trim().is_empty() {
+        return Err(CbError::usage("query is required"));
+    }
+    let engines: Vec<Engine> = if opts.auto {
+        vec![
+            Engine::Github,
+            Engine::Bing,
+            Engine::DuckDuckGo,
+            Engine::Arxiv,
+        ]
+    } else {
+        vec![opts.engine]
+    };
+    let mut attempts = Vec::new();
+    let mut last: Option<SearchReport> = None;
+    let mut first_error: Option<CbError> = None;
+    for engine in engines {
+        // auto 模式：单引擎别等满 30s，连不上就换下一个。
+        let mut once_opts = opts.clone();
+        if opts.auto {
+            once_opts.timeout_ms = opts.timeout_ms.min(6_000);
+        }
+        match search_once(ctx, engine, &once_opts).await {
+            Ok(mut report) => {
+                attempts.push(Attempt {
+                    engine,
+                    results: report.results.len(),
+                    empty_reason: report.empty_reason,
+                    error: None,
+                });
+                let good = !report.results.is_empty();
+                report.attempts = attempts.clone();
+                last = Some(report);
+                if good {
+                    break;
+                }
+            }
+            Err(e) => {
+                attempts.push(Attempt {
+                    engine,
+                    results: 0,
+                    empty_reason: None,
+                    error: Some(e.to_string()),
+                });
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+        }
+    }
+    let mut report = match last {
+        Some(r) => r,
+        None => return Err(first_error.unwrap_or_else(|| CbError::other("search failed"))),
+    };
+    report.attempts = attempts;
+    if let Some(reason) = report.empty_reason {
+        ctx.store
+            .append_history(&cb_store::HistoryRow {
+                id: 0,
+                ts: ctx.now(),
+                url: report.engine.url(&opts.query, opts.limit),
+                title: format!(
+                    "{}: {} ({})",
+                    report.engine.as_str(),
+                    opts.query,
+                    reason.as_str()
+                ),
+                kind: "search".to_string(),
+                session_id: None,
+                duration_ms: 0,
+                ok: false,
+            })
+            .ok();
+    } else {
+        ctx.store
+            .append_history(&cb_store::HistoryRow {
+                id: 0,
+                ts: ctx.now(),
+                url: report.engine.url(&opts.query, opts.limit),
+                title: format!("{}: {}", report.engine.as_str(), opts.query),
+                kind: "search".to_string(),
+                session_id: None,
+                duration_ms: 0,
+                ok: true,
+            })
+            .ok();
+    }
+    Ok(report)
+}
+
+/// 兼容入口：零结果但解析失败时返回错误（别让调用方把 parse_failed 当成功）。
 pub async fn search(ctx: &Ctx, opts: &SearchOpts) -> Result<Vec<SearchResult>, CbError> {
+    let report = search_report(ctx, opts).await?;
+    if report.empty_reason == Some(EmptyReason::ParseFailed) {
+        return Err(CbError::parse_failed(format!(
+            "{} returned {} bytes but 0 results: SERP selectors likely broke",
+            report.engine.as_str(),
+            report.bytes
+        )));
+    }
+    Ok(report.results)
+}
+
+#[allow(dead_code)]
+async fn legacy_search_removed(ctx: &Ctx, opts: &SearchOpts) -> Result<Vec<SearchResult>, CbError> {
     if opts.query.trim().is_empty() {
         return Err(CbError::usage("query is required"));
     }
@@ -327,6 +567,33 @@ pub async fn search(ctx: &Ctx, opts: &SearchOpts) -> Result<Vec<SearchResult>, C
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_reason_separates_broken_from_empty() {
+        assert_eq!(classify_empty(200, 50_000, 3), None);
+        assert_eq!(
+            classify_empty(200, 50_000, 0),
+            Some(EmptyReason::ParseFailed)
+        );
+        assert_eq!(classify_empty(200, 200, 0), Some(EmptyReason::Blocked));
+        assert_eq!(classify_empty(200, 3_000, 0), Some(EmptyReason::NoResults));
+        assert_eq!(classify_empty(429, 9_000, 0), Some(EmptyReason::Blocked));
+        assert!(challenge_like("<h1>Verify you are human</h1>"));
+        assert!(!challenge_like("<h1>results</h1>"));
+    }
+
+    #[test]
+    fn auto_order_prefers_structured_engines() {
+        // gh 有结构化 API，先试它；再 bing/ddg/arxiv。
+        let order = [
+            Engine::Github,
+            Engine::Bing,
+            Engine::DuckDuckGo,
+            Engine::Arxiv,
+        ];
+        assert_eq!(order[0].as_str(), "gh");
+        assert_eq!(order.len(), 4);
+    }
 
     #[test]
     fn engine_parsing_and_urls() {

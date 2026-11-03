@@ -101,3 +101,55 @@ fn unknown_engine_is_usage_error() {
     );
     assert_eq!(code, 2);
 }
+#[test]
+fn broken_serp_is_parse_failed_not_success() {
+    // P0-1: 页面拿到了、解析出 0 条，绝不能报 ok:true。
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("serp_broken.cassette.json");
+    let (code, v) = run(
+        &dir,
+        &[
+            "search",
+            "rust async",
+            "--engine",
+            "bing",
+            "--limit",
+            "5",
+            "--replay",
+            &cassette,
+        ],
+    );
+    assert_eq!(code, 10, "parse_failed must not exit 0: {v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"]["code"], "parse_failed", "{v}");
+}
+
+#[test]
+fn empty_serp_reports_its_reason_and_evidence() {
+    // P0-3: 零结果要能自证：empty_reason + http_status + bytes。
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("serp_shell.cassette.json");
+    let (code, v) = run(
+        &dir,
+        &[
+            "search",
+            "rust async",
+            "--engine",
+            "bing",
+            "--limit",
+            "5",
+            "--replay",
+            &cassette,
+        ],
+    );
+    assert_eq!(code, 0, "{v}");
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(
+        v["data"]["results"].as_array().map(|a| a.len()),
+        Some(0),
+        "{v}"
+    );
+    assert_eq!(v["data"]["empty_reason"], "blocked", "{v}");
+    assert_eq!(v["data"]["http_status"], 200, "{v}");
+    assert!(v["data"]["bytes"].as_u64().unwrap_or(0) > 0, "{v}");
+}

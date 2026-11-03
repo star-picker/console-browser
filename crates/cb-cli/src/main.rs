@@ -706,29 +706,73 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             Ok(0)
         }
         Cmd::Search(args) => {
-            let engine = cb_core::Engine::parse(&args.engine).ok_or_else(|| {
-                CbError::usage(format!(
-                    "unknown engine: {} (ddg|bing|gh|arxiv)",
-                    args.engine
-                ))
-            })?;
+            let auto = args.engine.eq_ignore_ascii_case("auto");
+            let engine = if auto {
+                cb_core::Engine::Github
+            } else {
+                cb_core::Engine::parse(&args.engine).ok_or_else(|| {
+                    CbError::usage(format!(
+                        "unknown engine: {} (auto|ddg|bing|gh|arxiv)",
+                        args.engine
+                    ))
+                })?
+            };
             let mut opts = cb_core::SearchOpts::new(engine, args.query.clone());
             opts.limit = args.limit;
             opts.replay = args.replay.clone();
             opts.timeout_ms = args.timeout_ms;
-            let results = cb_core::search(ctx, &opts).await?;
+            opts.auto = auto;
+            let report = cb_core::search_report(ctx, &opts).await?;
+            // P0-1: 解析失效必须显性失败，不能伪装成「确实没有结果」。
+            if report.empty_reason == Some(cb_core::EmptyReason::ParseFailed) {
+                return Err(CbError::parse_failed(format!(
+                    "{} returned {} bytes but 0 results: SERP selectors likely broke",
+                    report.engine.as_str(),
+                    report.bytes
+                )));
+            }
             let elapsed = started.elapsed().as_millis() as u64;
             let meta = output::meta(elapsed, false, ctx.profile.as_str());
+            let attempts: Vec<_> = report
+                .attempts
+                .iter()
+                .map(|a| {
+                    serde_json::json!({
+                        "engine": a.engine.as_str(),
+                        "results": a.results,
+                        "empty_reason": a.empty_reason.map(|r| r.as_str()),
+                        "error": a.error,
+                    })
+                })
+                .collect();
+            let empty_reason = report.empty_reason.map(|r| r.as_str());
             if cli.json {
                 let envelope = Envelope::ok(
                     meta,
-                    serde_json::json!({ "engine": engine.as_str(), "query": args.query, "results": results }),
+                    serde_json::json!({
+                        "engine": report.engine.as_str(),
+                        "query": args.query,
+                        "results": report.results,
+                        "empty_reason": empty_reason,
+                        "http_status": report.http_status,
+                        "bytes": report.bytes,
+                        "attempts": attempts,
+                    }),
                 );
                 output::print_json(&envelope);
-            } else if results.is_empty() {
-                println!("no results");
+            } else if report.results.is_empty() {
+                println!("no results ({})", empty_reason.unwrap_or("unknown"));
+                for a in &report.attempts {
+                    println!(
+                        "  tried {}: {} results, reason={:?}, error={:?}",
+                        a.engine.as_str(),
+                        a.results,
+                        a.empty_reason.map(|r| r.as_str()),
+                        a.error
+                    );
+                }
             } else {
-                for (i, r) in results.iter().enumerate() {
+                for (i, r) in report.results.iter().enumerate() {
                     println!("{}. {}\n   {}\n   {}", i + 1, r.title, r.url, r.snippet);
                 }
             }

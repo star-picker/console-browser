@@ -27,7 +27,9 @@ pub use envelope::{Envelope, Meta, ENGINE};
 pub use error::CbError;
 pub use fetch::{fetch_page, FetchOpts, FetchOutcome, Format};
 pub use login::{detect_login_wall, LoginWall, LoginWallKind};
-pub use search::{search, Engine, SearchOpts, SearchResult};
+pub use search::{
+    search, search_report, Attempt, EmptyReason, Engine, SearchOpts, SearchReport, SearchResult,
+};
 pub use selftest::{run_selftest, SelftestReport};
 pub use tools::{registry, ToolSpec};
 
