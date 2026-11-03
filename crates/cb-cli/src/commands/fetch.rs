@@ -75,6 +75,7 @@ impl FetchArgs {
             fresh: self.fresh,
             no_js: self.no_js,
             replay: self.replay.clone(),
+            replay_session: None,
             record: self.record.clone(),
             timeout_ms: self.timeout_ms,
             ai_escalate: self.ai_escalate,

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/bench",
+      "final_url": "https://example.com/bench",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    },
+    {
+      "url": "https://example.com/bench",
+      "final_url": "https://example.com/bench",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    },
+    {
+      "url": "https://example.com/bench",
+      "final_url": "https://example.com/bench",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    }
+  ]
+}

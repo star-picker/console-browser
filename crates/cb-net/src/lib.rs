@@ -248,6 +248,23 @@ impl Cassette {
     }
 }
 
+/// 回放游标：同一 URL 可以录多条（成功/失败/超时），按顺序消费。
+/// 多个 NetClient 共享同一个 session 时可以跨请求续着消费（bench 用）。
+#[derive(Debug, Clone, Default)]
+pub struct ReplaySession {
+    cursor: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, usize>>>,
+}
+
+impl ReplaySession {
+    fn next(&self, url: &str) -> usize {
+        let mut cursor = self.cursor.lock().unwrap_or_else(|e| e.into_inner());
+        let slot = cursor.entry(url.to_string()).or_insert(0);
+        let index = *slot;
+        *slot += 1;
+        index
+    }
+}
+
 /// 三个阶段分开的超时：连不上不该把总预算耗光。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timeouts {
@@ -285,8 +302,8 @@ pub struct NetClient {
     cookie_store: Option<std::sync::Arc<dyn cookies::CookieStore>>,
     /// 录制模式下累计的响应，供 `--record` 落盘。
     record: std::sync::Arc<std::sync::Mutex<Option<Cassette>>>,
-    /// 回放游标：同一 URL 可以录多条（成功/失败/超时），按顺序消费。
-    replay_cursor: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, usize>>>,
+    /// 回放游标（可跨客户端共享）。
+    replay_cursor: ReplaySession,
 }
 
 impl NetClient {
@@ -309,16 +326,24 @@ impl NetClient {
             backend: Backend::Live { client, profile },
             cookie_store: None,
             record: std::sync::Arc::new(std::sync::Mutex::new(None)),
-            replay_cursor: std::sync::Arc::new(std::sync::Mutex::default()),
+            replay_cursor: ReplaySession::default(),
         })
     }
 
     pub fn replay(path: impl AsRef<Path>) -> Result<NetClient, NetError> {
+        NetClient::replay_with_session(path, ReplaySession::default())
+    }
+
+    /// 带共享回放游标的客户端：跨多次 fetch 按顺序消费同一 URL 的条目。
+    pub fn replay_with_session(
+        path: impl AsRef<Path>,
+        session: ReplaySession,
+    ) -> Result<NetClient, NetError> {
         Ok(NetClient {
             backend: Backend::Replay(Cassette::load(path)?),
             cookie_store: None,
             record: std::sync::Arc::new(std::sync::Mutex::new(None)),
-            replay_cursor: std::sync::Arc::new(std::sync::Mutex::default()),
+            replay_cursor: session,
         })
     }
 
@@ -409,13 +434,7 @@ impl NetClient {
     pub async fn get(&self, req: &Request) -> Result<Response, NetError> {
         match &self.backend {
             Backend::Replay(cassette) => {
-                let index = {
-                    let mut cursor = self.replay_cursor.lock().unwrap_or_else(|e| e.into_inner());
-                    let slot = cursor.entry(req.url.clone()).or_insert(0);
-                    let index = *slot;
-                    *slot += 1;
-                    index
-                };
+                let index = self.replay_cursor.next(&req.url);
                 let matches: Vec<&CassetteEntry> = cassette
                     .entries
                     .iter()

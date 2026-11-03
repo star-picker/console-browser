@@ -1203,55 +1203,130 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             }
         },
         Cmd::Bench { url, n, replay } => {
+            // 失败的 bench 更需要「成功那几次多快」：每完成一次就留样本，别丢。
+            let planned = (*n).max(1) as usize;
+            let mut samples: Vec<serde_json::Value> = Vec::new();
             let mut times: Vec<u128> = Vec::new();
             let mut bytes = 0usize;
             let mut tokens = 0usize;
-            for _ in 0..(*n).max(1) {
+            let mut failure: Option<CbError> = None;
+            // bench 的每次抓取共享回放游标，失败样本才能落在第 2 次之后。
+            let replay_session = cb_net::ReplaySession::default();
+            for i in 0..planned {
                 let opts = cb_core::FetchOpts {
                     url: url.clone(),
                     replay: replay.clone(),
+                    replay_session: replay.as_ref().map(|_| replay_session.clone()),
                     fresh: true,
                     ..Default::default()
                 };
                 let t0 = std::time::Instant::now();
-                let outcome = cb_core::fetch_page(ctx, &opts).await?;
-                times.push(t0.elapsed().as_millis());
-                bytes = outcome.raw.len();
-                tokens = outcome.tokens_estimate;
+                match cb_core::fetch_page(ctx, &opts).await {
+                    Ok(outcome) => {
+                        let ms = t0.elapsed().as_millis();
+                        times.push(ms);
+                        bytes = outcome.raw.len();
+                        tokens = outcome.tokens_estimate;
+                        samples.push(serde_json::json!({
+                            "i": i,
+                            "ok": true,
+                            "ms": ms,
+                            "error": null,
+                        }));
+                    }
+                    Err(err) => {
+                        let ms = t0.elapsed().as_millis();
+                        samples.push(serde_json::json!({
+                            "i": i,
+                            "ok": false,
+                            "ms": ms,
+                            "error": err.body.code,
+                        }));
+                        failure = Some(err);
+                        break;
+                    }
+                }
             }
             times.sort_unstable();
-            let min = times.first().copied().unwrap_or(0);
-            let max = times.last().copied().unwrap_or(0);
-            let avg = times.iter().sum::<u128>() / times.len().max(1) as u128;
+            let completed = samples.len();
+            let opt = |v: Option<u128>| v.map(|n| serde_json::Value::from(n as u64));
+            let min = opt(times.first().copied());
+            let max = opt(times.last().copied());
+            let avg = if times.is_empty() {
+                None
+            } else {
+                Some(times.iter().sum::<u128>() / times.len() as u128)
+            };
+            let p50 = opt(times.get(times.len() / 2).copied());
+            let error_message = failure.as_ref().map(|e| {
+                format!(
+                    "aborted at sample {}: {}",
+                    completed.saturating_sub(1),
+                    e.body.message
+                )
+            });
+            let data = serde_json::json!({
+                "url": url,
+                "runs": times.len(),
+                "samples": samples,
+                "completed": completed,
+                "planned": planned,
+                "min_ms": min,
+                "avg_ms": avg,
+                "max_ms": max,
+                "p50_ms": p50,
+                "bytes": bytes,
+                "tokens": tokens,
+                "error": error_message,
+            });
+            let meta = output::meta(
+                started.elapsed().as_millis() as u64,
+                false,
+                ctx.profile.as_str(),
+            );
             if cli.json {
-                let envelope = Envelope::ok(
-                    output::meta(
-                        started.elapsed().as_millis() as u64,
-                        false,
-                        ctx.profile.as_str(),
-                    ),
-                    serde_json::json!({
-                        "url": url,
-                        "runs": times.len(),
-                        "min_ms": min,
-                        "avg_ms": avg,
-                        "max_ms": max,
-                        "bytes": bytes,
-                        "tokens": tokens,
-                    }),
-                );
+                let envelope = match &failure {
+                    Some(err) => Envelope::new(meta, Some(data), Some(err.body.clone())),
+                    None => Envelope::ok(meta, data),
+                };
                 output::print_json(&envelope);
             } else {
+                for s in data["samples"].as_array().into_iter().flatten() {
+                    println!(
+                        "sample {}  ok={}  {}ms{}",
+                        s["i"],
+                        s["ok"],
+                        s["ms"],
+                        s["error"]
+                            .as_str()
+                            .map(|e| format!("  {e}"))
+                            .unwrap_or_default()
+                    );
+                }
                 println!(
-                    "runs {}  min {}ms  avg {}ms  max {}ms",
-                    times.len(),
-                    min,
-                    avg,
-                    max
+                    "completed {completed}/{planned}  p50 {}ms  min {}ms  avg {}ms  max {}ms",
+                    p50.as_ref()
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "n/a".to_string()),
+                    min.as_ref()
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "n/a".to_string()),
+                    avg.map(|v| v.to_string())
+                        .unwrap_or_else(|| "n/a".to_string()),
+                    max.as_ref()
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "n/a".to_string()),
                 );
                 println!("bytes {bytes}  tokens {tokens}");
+                if let Some(err) = &failure {
+                    eprintln!(
+                        "cb: bench aborted at sample {}: {}",
+                        completed - 1,
+                        err.body.message
+                    );
+                }
             }
-            Ok(0)
+            Ok(failure.as_ref().map(|e| e.exit_code()).unwrap_or(0))
         }
         Cmd::Log(args) => match &args.cmd {
             commands::log::LogCmd::Dir => {

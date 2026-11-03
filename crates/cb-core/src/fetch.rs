@@ -38,6 +38,8 @@ pub struct FetchOpts {
     pub fresh: bool,
     pub no_js: bool,
     pub replay: Option<PathBuf>,
+    /// 跨多次抓取共享回放游标（bench 用；普通单次抓取留空即可）。
+    pub replay_session: Option<cb_net::ReplaySession>,
     pub record: Option<PathBuf>,
     pub timeout_ms: u64,
     /// 挑战升到最后一阶时，允许花 token 问模型（默认关闭）。
@@ -56,6 +58,7 @@ impl Default for FetchOpts {
             fresh: false,
             no_js: false,
             replay: None,
+            replay_session: None,
             record: None,
             timeout_ms: DEFAULT_TIMEOUT_MS,
             ai_escalate: false,
@@ -252,7 +255,10 @@ pub async fn fetch_page(ctx: &Ctx, opts: &FetchOpts) -> Result<FetchOutcome, CbE
     let all_started = std::time::Instant::now();
     // 回放客户端只建一次：同一 URL 的多条 cassette 条目按尝试顺序消费。
     let replay_client = match &opts.replay {
-        Some(path) => Some(cb_net::NetClient::replay(path)?),
+        Some(path) => Some(cb_net::NetClient::replay_with_session(
+            path,
+            opts.replay_session.clone().unwrap_or_default(),
+        )?),
         None => None,
     };
     for (attempt, profile) in ladder.iter().copied().enumerate() {

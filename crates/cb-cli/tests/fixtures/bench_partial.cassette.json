@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://example.com/bench",
+      "final_url": "https://example.com/bench",
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "max-age=600"
+      },
+      "body": "<html><head><title>Bench Page</title></head><body><main><h1>Bench</h1><p>This paragraph is long enough for the main content scorer to accept the container as an article body rather than navigation noise.</p></main></body></html>"
+    },
+    {
+      "url": "https://example.com/bench",
+      "final_url": "https://example.com/bench",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    },
+    {
+      "url": "https://example.com/bench",
+      "final_url": "https://example.com/bench",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    },
+    {
+      "url": "https://example.com/bench",
+      "final_url": "https://example.com/bench",
+      "status": 0,
+      "headers": {},
+      "body": "",
+      "error": "timeout"
+    }
+  ]
+}
