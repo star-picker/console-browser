@@ -640,6 +640,15 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
         Cmd::Fetch(args) => {
             let opts = args.to_opts().map_err(|e| CbError::usage(e.to_string()))?;
             let outcome = cb_core::fetch_page(ctx, &opts).await?;
+            // scope 没命中不是错误，但人得看得见（AI 读不到 stderr，读 meta.extract.scope）。
+            if let Some(scope) = &outcome.scope {
+                if !scope.matched {
+                    eprintln!(
+                        "cb: warning: --scope '{}' matched nothing; returning empty content",
+                        scope.selector
+                    );
+                }
+            }
             let elapsed = started.elapsed().as_millis() as u64;
             if cli.json && args.out.is_some() {
                 return Err(CbError::usage(

@@ -35,6 +35,7 @@ pub fn with_extract(mut meta: Meta, outcome: &cb_core::FetchOutcome) -> Meta {
         chars: markdown.chars().count(),
         paragraphs,
         container_score: outcome.container_score,
+        scope: outcome.scope.clone(),
     });
     meta
 }

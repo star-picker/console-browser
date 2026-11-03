@@ -30,6 +30,9 @@ pub struct ExtractMeta {
     pub paragraphs: usize,
     /// 主内容容器得分：选中容器正文占整页的比例（链接密度已扣分）。
     pub container_score: Option<f64>,
+    /// --scope 回执：selector 是否命中、命中前后字符数。
+    #[serde(default)]
+    pub scope: Option<cb_extract::ScopeReport>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

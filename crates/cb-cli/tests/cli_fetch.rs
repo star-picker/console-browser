@@ -347,3 +347,54 @@ fn images_flag_is_accepted_explicitly() {
     let content = v["data"]["content"].as_str().expect("content");
     assert_eq!(content.matches("![").count(), 2, "{content}");
 }
+
+#[test]
+fn scope_receipt_reports_hit_and_miss() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("page.cassette.json");
+
+    let out = cb(&dir)
+        .args([
+            "fetch",
+            "https://example.com/a",
+            "--scope",
+            "main",
+            "--replay",
+            &cassette,
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    let scope = &v["meta"]["extract"]["scope"];
+    assert_eq!(scope["selector"], "main", "{v}");
+    assert_eq!(scope["matched"], true, "{v}");
+    assert!(scope["chars_after"].as_u64().is_some(), "{v}");
+
+    let out = cb(&dir)
+        .args([
+            "fetch",
+            "https://example.com/a",
+            "--scope",
+            ".does-not-exist",
+            "--replay",
+            &cassette,
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let v = parse(&out.stdout);
+    assert_eq!(v["data"]["content"], "", "miss yields empty content: {v}");
+    assert_eq!(
+        v["meta"]["extract"]["scope"]["matched"], false,
+        "miss must be reported, not silent: {v}"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("matched nothing"),
+        "humans need a stderr warning, got: {stderr}"
+    );
+}

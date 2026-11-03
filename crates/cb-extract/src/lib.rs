@@ -36,6 +36,20 @@ pub struct Markdown {
     /// 调用方用它判断「抓没抓错容器」；列表页/整页包裹会明显偏低。
     #[serde(default)]
     pub container_score: Option<f64>,
+    /// --scope 的回执：命中没有、命中前后多少字。没命中不是错误，但必须可自证。
+    #[serde(default)]
+    pub scope: Option<ScopeReport>,
+}
+
+/// --scope 的回执。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScopeReport {
+    pub selector: String,
+    pub matched: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chars_before: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chars_after: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -563,16 +577,48 @@ fn render_table(table: ElementRef<'_>) -> Option<String> {
     Some(out.trim_end().to_string())
 }
 
+/// 提取 markdown；--scope 的回执与「未命中」语义在这里收口。
 pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdown> {
+    let Some(css) = opts.scope.as_deref() else {
+        return Ok(extract_inner(html, opts)?.0);
+    };
+    let before_opts = ExtractOpts {
+        scope: None,
+        ..opts.clone()
+    };
+    let before = extract_inner(html, &before_opts)?.0.text.chars().count();
+    let (mut md, matched) = extract_inner(html, opts)?;
+    let after = md.text.chars().count();
+    md.scope = Some(ScopeReport {
+        selector: css.to_string(),
+        matched,
+        chars_before: Some(before),
+        chars_after: Some(after),
+    });
+    Ok(md)
+}
+
+fn extract_inner(html: &str, opts: &ExtractOpts) -> anyhow::Result<(Markdown, bool)> {
     let doc = Document::parse(html);
     let (root, semantic_root) = match &opts.scope {
-        Some(css) => (
-            doc.select(css)
-                .into_iter()
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("scope selector matched nothing: {css}"))?,
-            true,
-        ),
+        Some(css) => match doc.select(css).into_iter().next() {
+            Some(el) => (el, true),
+            // scope 未命中：空结果 + matched=false，交给 meta 回执，不报错。
+            None => {
+                return Ok((
+                    Markdown {
+                        text: String::new(),
+                        tokens_estimate: 0,
+                        links: Vec::new(),
+                        images: Vec::new(),
+                        truncated: false,
+                        container_score: None,
+                        scope: None,
+                    },
+                    false,
+                ))
+            }
+        },
         None => {
             let el = doc
                 .main_content()
@@ -675,14 +721,18 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
     }
 
     let tokens_estimate = estimate_tokens(&text);
-    Ok(Markdown {
-        text,
-        tokens_estimate,
-        links,
-        images,
-        truncated,
-        container_score,
-    })
+    Ok((
+        Markdown {
+            text,
+            tokens_estimate,
+            links,
+            images,
+            truncated,
+            container_score,
+            scope: None,
+        },
+        true,
+    ))
 }
 
 /// 容器得分：选中容器的文本占 body 的比例，再按容器内链接密度扣分。
