@@ -473,7 +473,14 @@ mod tests {
         out
     }
 
+    /// i18n 是进程级全局，并行测试会互相踩；用锁把设置语言和渲染串起来。
+    fn lang_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn render(app: &App) -> String {
+        let _guard = lang_guard();
         cb_core::i18n::set(cb_core::i18n::Lang::En);
         render_sized(app, 100, 30)
     }
@@ -584,6 +591,7 @@ mod tests {
     #[test]
     fn language_toggle_switches_all_ui_text() {
         use cb_core::i18n::{self, Lang};
+        let _guard = lang_guard();
         let app = App::new(100, 30);
         i18n::set(Lang::En);
         let en = render_sized(&app, 100, 30);
