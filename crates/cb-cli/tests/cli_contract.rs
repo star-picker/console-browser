@@ -38,6 +38,21 @@ fn selftest_reports_eight_checks_all_green_or_skipped() {
         );
     }
     assert_eq!(v["data"]["all_ok"], true);
+    // P1: 细分状态 —— 有跳过项时是 degraded，而不是笼统的 green。
+    let status = v["data"]["status"].as_str().expect("status");
+    assert!(
+        status == "ok" || status == "degraded",
+        "selftest status: {status}"
+    );
+    let counts = &v["data"]["counts"];
+    assert!(counts["ok"].as_u64().unwrap_or(0) >= 4, "{counts}");
+    assert_eq!(counts["fail"], 0, "{counts}");
+    assert_eq!(
+        counts["ok"].as_u64().unwrap_or(0)
+            + counts["skipped"].as_u64().unwrap_or(0)
+            + counts["fail"].as_u64().unwrap_or(0),
+        8
+    );
 }
 
 #[test]

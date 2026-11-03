@@ -1,3 +1,8 @@
+### 试用报告 P1 收尾：selftest 状态细分 + 全局 --timeout
+
+- `cb selftest --json` 的 report 现在带 `status`（`ok` / `degraded` / `fail`）与 `counts {ok, skipped, fail}`：有可选能力缺失（tls oracle / JS 引擎 / LLM 未配）时是 `degraded`，不再笼统「绿」。
+- 新增全局 `--timeout <MS>`：覆盖子命令默认超时（先接在 `cb search`；`cb --timeout 5000 search …`）。
+- 合同测试补：status 只能是 ok/degraded、counts 加起来等于 8 项、fail 为 0。
 ### 试用报告 P1：meta.cache 对象化 / meta.extract 统计 / history 人读时间
 
 - `meta.cached` 之外新增 `meta.cache = {hit, age_s, stale}`（age_s 暂为 null，等缓存层带出年龄），调用方能判断新鲜度而不是只有一个布尔。

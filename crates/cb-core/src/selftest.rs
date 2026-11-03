@@ -38,8 +38,18 @@ impl CheckResult {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct StatusCounts {
+    pub ok: usize,
+    pub skipped: usize,
+    pub fail: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct SelftestReport {
     pub all_ok: bool,
+    /// 细分状态：ok（全部通过）/ degraded（有跳过项，功能可用但不完整）/ fail。
+    pub status: &'static str,
+    pub counts: StatusCounts,
     pub checks: Vec<CheckResult>,
 }
 
@@ -113,6 +123,22 @@ pub fn run_selftest(ctx: &Ctx) -> SelftestReport {
         checks.push(CheckResult::fail("mcp", "tool registry did not serialize"));
     }
 
-    let all_ok = checks.iter().all(|c| c.status != "fail");
-    SelftestReport { all_ok, checks }
+    let counts = StatusCounts {
+        ok: checks.iter().filter(|c| c.status == "ok").count(),
+        skipped: checks.iter().filter(|c| c.status == "skipped").count(),
+        fail: checks.iter().filter(|c| c.status == "fail").count(),
+    };
+    let status = if counts.fail > 0 {
+        "fail"
+    } else if counts.skipped > 0 {
+        "degraded"
+    } else {
+        "ok"
+    };
+    SelftestReport {
+        all_ok: counts.fail == 0,
+        status,
+        counts,
+        checks,
+    }
 }

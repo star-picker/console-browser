@@ -47,6 +47,10 @@ struct Cli {
     #[arg(long, global = true, value_name = "LANG")]
     lang: Option<String>,
 
+    /// 全局超时毫秒（覆盖子命令默认）· Global timeout in ms
+    #[arg(long, global = true, value_name = "MS")]
+    timeout: Option<u64>,
+
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
@@ -752,7 +756,7 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             let mut opts = cb_core::SearchOpts::new(engine, args.query.clone());
             opts.limit = args.limit;
             opts.replay = args.replay.clone();
-            opts.timeout_ms = args.timeout_ms;
+            opts.timeout_ms = cli.timeout.unwrap_or(args.timeout_ms);
             opts.auto = auto;
             let report = cb_core::search_report(ctx, &opts).await?;
             // P0-1: 解析失效必须显性失败，不能伪装成「确实没有结果」。
