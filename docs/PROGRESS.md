@@ -1,3 +1,10 @@
+### cb-js：内联脚本执行（`cb js --run-inline`）
+
+- `JsRuntime::inline_scripts(html)`：按文档顺序取内联 `<script>`，跳过 `src` 外链、`application/json`、模板类型；上限 50 段。
+- `cb js <url> --run-inline`：先装 DOM/BOM，再逐段执行内联脚本（每段受 `--timeout` 中断保护），最后输出 `document.title`；JSON 给 `scripts_run` + `title`。
+- 这是很多「有 JS 但没内容」页面的真相：内联脚本只改 title/meta，不渲染正文；现在能把这类页面和「真正 SPA」区分开。
+- 实测（fixture 页，无 JS）：输出 `Example Page`。
+- 测试：内联脚本提取顺序 + 跳过 JSON-LD/外链。
 ### 插件安装：cb plugin add + BOM 容错
 
 - `cb-plugins::install(src, plugins_dir)`：先校验 manifest（名字安全、版本必填、权限白名单），再整目录复制到插件目录（同名覆盖）。

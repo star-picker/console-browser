@@ -149,6 +149,9 @@ enum Cmd {
         /// 预取给脚本 fetch 用的 URL（可重复）· Prefetch URLs for script fetch()
         #[arg(long = "fetch", value_name = "URL")]
         fetch: Vec<String>,
+        /// 依次执行页面内联脚本（跳过外链/JSON-LD）· Run inline scripts from the page
+        #[arg(long)]
+        run_inline: bool,
     },
 
     /// 插件清单/权限 · Plugins (manifest + permissions)
@@ -1366,8 +1369,10 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             code,
             replay,
             fetch,
+            run_inline,
         } => {
             let engine = cb_js::JsRuntime::new().map_err(|e| CbError::js(e.to_string()))?;
+            let mut source_html = String::new();
             if let Some(target) = url {
                 let opts = cb_core::FetchOpts {
                     url: target.clone(),
@@ -1375,6 +1380,7 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     ..Default::default()
                 };
                 let outcome = cb_core::fetch_page(ctx, &opts).await?;
+                source_html = outcome.raw.clone();
                 engine
                     .install_html(&outcome.raw)
                     .map_err(|e| CbError::js(e.to_string()))?;
@@ -1399,8 +1405,32 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     .map_err(|e| CbError::js(e.to_string()))?;
             }
             let code = code.clone().unwrap_or_else(|| "document.title".to_string());
-            // 脚本可能死循环：默认 5s 中断，可用全局 --timeout 调。
+            let _ = &source_html;
             let timeout_ms = cli.timeout.unwrap_or(5_000);
+            if *run_inline {
+                // 内联脚本常常只改 title/meta，这也是很多页面「有 JS 但没内容」的真相。
+                let mut ran = 0usize;
+                for script in cb_js::JsRuntime::inline_scripts(&source_html) {
+                    if engine.eval_with_timeout(&script, timeout_ms).is_ok() {
+                        ran += 1;
+                    }
+                }
+                let title = engine.eval("document.title").unwrap_or_default();
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "scripts_run": ran, "title": title }),
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    println!("{title}");
+                }
+                return Ok(0);
+            }
             let result = engine
                 .eval_with_timeout(&code, timeout_ms)
                 .map_err(|e| CbError::js(e.to_string()))?;

@@ -122,6 +122,32 @@ impl JsRuntime {
         self.ctx.with(|ctx| ctx.eval::<(), _>(js.as_bytes()))?;
         Ok(())
     }
+    /// 页面里的内联脚本（跳过 src 外链、JSON-LD、模板），按文档顺序返回。
+    pub fn inline_scripts(html: &str) -> Vec<String> {
+        use scraper::{Html, Selector};
+        let doc = Html::parse_document(html);
+        let Ok(selector) = Selector::parse("script:not([src])") else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for el in doc.select(&selector) {
+            let kind = el.value().attr("type").unwrap_or("").to_ascii_lowercase();
+            if kind.contains("json") || kind.contains("template") {
+                continue;
+            }
+            let code = el.text().collect::<Vec<_>>().join("\n");
+            let code = code.trim();
+            if code.is_empty() {
+                continue;
+            }
+            out.push(code.to_string());
+            if out.len() >= 50 {
+                break;
+            }
+        }
+        out
+    }
+
     /// 装 BOM 桩：location / localStorage / navigator / console。
     pub fn install_bom(&self, url: &str, lang: &str) -> Result<()> {
         let js = format!(
@@ -205,6 +231,15 @@ mod tests {
         let rt = JsRuntime::new().expect("runtime");
         assert_eq!(rt.eval("1 + 1").expect("eval"), "2");
         assert_eq!(rt.eval("'cb'.toUpperCase()").expect("eval"), "CB");
+    }
+
+    #[test]
+    fn inline_scripts_are_extracted_in_order() {
+        let html = r#"<html><body><script type="application/json">{"a":1}</script><script>var a = 1;</script><script src="x.js"></script><script>var b = 2;</script></body></html>"#;
+        let scripts = JsRuntime::inline_scripts(html);
+        assert_eq!(scripts.len(), 2, "{scripts:?}");
+        assert!(scripts[0].contains("var a = 1"));
+        assert!(scripts[1].contains("var b = 2"));
     }
 
     #[test]
