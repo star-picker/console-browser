@@ -135,15 +135,9 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, spans:
                     });
                 }
                 "img" => {
-                    let src = el
-                        .value()
-                        .attr("src")
-                        .unwrap_or_default()
-                        .trim()
-                        .to_string();
-                    if src.is_empty() || src.starts_with("data:") {
+                    let Some((src, _lazy)) = crate::best_image_src(el) else {
                         return;
-                    }
+                    };
                     let alt = el
                         .value()
                         .attr("alt")

@@ -1,3 +1,11 @@
+### 试用报告 P1-1：懒加载图片属性链 + 占位图判定
+
+- 图片真实地址按优先级取：`srcset`（按描述符选最大）> `data-src` > `data-original` > `data-lazy-src` > `data-actualsrc` > `data-original-src` > `src`。
+- 占位图判定：宽高 ≤2×2、URL 含 placeholder/blank/loading/spacer/1x1/transparent/pixel、短 data URI —— 直接跳过，不进正文也不进图片列表。
+- `Image` 新增 `lazy` 字段，调用方能知道这张图是不是懒加载属性取来的。
+- 两条 walker（markdown 与 RenderDoc）共用 `best_image_src`，微信/知乎/简书/Medium 这类 `data-src` 站不再静默丢图。
+- 测试：`crates/cb-extract/tests/img_lazy.rs`（srcset 选最大、data-src/data-original 命中、占位与 data URI 不泄露、`lazy` 标记）。
+- `cb tools --json` 补 `description`（按当前语言单语言输出）。
 ### 试用报告 P0：搜索零结果可区分 + engine auto 回退
 
 - `cb search` 现在带自证字段：`empty_reason`（`no_results` / `parse_failed` / `blocked`）、`http_status`、`bytes`、`attempts`。

@@ -20,6 +20,9 @@ pub struct Link {
 pub struct Image {
     pub alt: String,
     pub url: String,
+    /// 是不是从 srcset / data-src 这类懒加载属性里取到的。
+    #[serde(default)]
+    pub lazy: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +49,95 @@ impl Default for ExtractOpts {
             inline_link_limit: 30,
         }
     }
+}
+
+/// 占位图判定：尺寸 ≤2×2、URL 含占位词、或短 data URI。
+pub(crate) fn placeholder_url(url: &str, w: Option<u32>, h: Option<u32>) -> bool {
+    if let (Some(w), Some(h)) = (w, h) {
+        if w <= 2 && h <= 2 {
+            return true;
+        }
+    }
+    let l = url.to_ascii_lowercase();
+    let words = [
+        "placeholder",
+        "blank.gif",
+        "blank.png",
+        "loading.gif",
+        "spacer",
+        "1x1",
+        "transparent",
+        "pixel.gif",
+        "grey.gif",
+    ];
+    if words.iter().any(|m| l.contains(m)) {
+        return true;
+    }
+    url.starts_with("data:") && url.len() < 200
+}
+
+/// srcset 里选最大的一张：按描述符（w 或 x）排序，没有描述符就取最后一项。
+fn pick_srcset(srcset: &str) -> Option<String> {
+    let mut best: Option<(f32, String)> = None;
+    for part in srcset.split(',') {
+        let mut it = part.split_whitespace();
+        let Some(url) = it.next() else { continue };
+        let weight = it
+            .next()
+            .and_then(|d| {
+                d.trim_end_matches(|c: char| c == 'w' || c == 'x')
+                    .parse::<f32>()
+                    .ok()
+            })
+            .unwrap_or(0.0);
+        let url = url.trim();
+        if url.is_empty() {
+            continue;
+        }
+        match &best {
+            Some((bw, _)) if *bw >= weight => {}
+            _ => best = Some((weight, url.to_string())),
+        }
+    }
+    best.map(|(_, u)| u)
+}
+
+/// 图片真实地址：srcset > data-src > data-original > data-lazy-src > data-actualsrc > src。
+pub(crate) fn best_image_src(el: ElementRef<'_>) -> Option<(String, bool)> {
+    let w = el
+        .value()
+        .attr("width")
+        .and_then(|v| v.trim().parse::<u32>().ok());
+    let h = el
+        .value()
+        .attr("height")
+        .and_then(|v| v.trim().parse::<u32>().ok());
+    if let Some(srcset) = el.value().attr("srcset") {
+        if let Some(url) = pick_srcset(srcset) {
+            if !placeholder_url(&url, w, h) {
+                return Some((url, true));
+            }
+        }
+    }
+    for attr in [
+        "data-src",
+        "data-original",
+        "data-lazy-src",
+        "data-actualsrc",
+        "data-original-src",
+    ] {
+        if let Some(v) = el.value().attr(attr) {
+            let v = v.trim();
+            if !v.is_empty() && !placeholder_url(v, w, h) {
+                return Some((v.to_string(), true));
+            }
+        }
+    }
+    let src = el.value().attr("src")?.trim();
+    if src.is_empty() || placeholder_url(src, w, h) {
+        return None;
+    }
+    Some((src.to_string(), false))
 }
 
 fn sel(css: &str) -> Option<Selector> {
@@ -154,15 +246,9 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, out: &
                     }
                 }
                 "img" => {
-                    let src = el
-                        .value()
-                        .attr("src")
-                        .unwrap_or_default()
-                        .trim()
-                        .to_string();
-                    if src.is_empty() || src.starts_with("data:") {
+                    let Some((src, lazy)) = best_image_src(el) else {
                         return;
-                    }
+                    };
                     let alt = el
                         .value()
                         .attr("alt")
@@ -172,6 +258,7 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, out: &
                     ctx.images.push(Image {
                         alt: alt.clone(),
                         url: src.clone(),
+                        lazy,
                     });
                     // 没 alt 的图片是装饰/图标，别污染 markdown 与 AI 上下文。
                     if alt.is_empty() {
@@ -477,13 +564,11 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
         Some(s) => root
             .select(&s)
             .filter_map(|i| {
-                let src = i.value().attr("src")?.trim().to_string();
-                if src.is_empty() || src.starts_with("data:") {
-                    return None;
-                }
+                let (src, lazy) = best_image_src(i)?;
                 Some(Image {
                     alt: i.value().attr("alt").unwrap_or_default().trim().to_string(),
                     url: src,
+                    lazy,
                 })
             })
             .collect(),

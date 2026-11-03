@@ -680,7 +680,17 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                         false,
                         ctx.profile.as_str(),
                     ),
-                    serde_json::json!({ "tools": tools }),
+                    serde_json::json!({
+                        "tools": tools
+                            .iter()
+                            .map(|t| serde_json::json!({
+                                "name": t.name,
+                                "kind": t.kind,
+                                "description": t.summary_for(cb_core::i18n::current()),
+                                "input_schema": t.input_schema,
+                            }))
+                            .collect::<Vec<_>>()
+                    }),
                 );
                 output::print_json(&envelope);
             } else {
