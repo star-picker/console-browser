@@ -12,5 +12,6 @@ pub mod mcp;
 pub mod plugin;
 pub mod revisions;
 pub mod search;
+pub mod session;
 pub mod site;
 pub mod tui;

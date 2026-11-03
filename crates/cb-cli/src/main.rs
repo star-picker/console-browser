@@ -51,6 +51,16 @@ struct Cli {
     #[arg(long, global = true, value_name = "MS")]
     timeout: Option<u64>,
 
+    /// daemon 端点名（命名管道）· Daemon endpoint name (named pipe)
+    #[arg(
+        long,
+        global = true,
+        env = "CB_PIPE",
+        default_value = "cb-daemon",
+        value_name = "NAME"
+    )]
+    pipe: String,
+
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
@@ -156,6 +166,22 @@ enum Cmd {
 
     /// 插件清单/权限 · Plugins (manifest + permissions)
     Plugin(commands::plugin::PluginArgs),
+
+    /// 常驻会话 daemon（命名管道 + 句柄 @eN）· Long-running session daemon
+    #[command(
+        after_help = "EXAMPLES / 例子:\n  cb daemon\n  cb daemon --replay case.cassette.json\n  cb daemon --pipe cb-dev"
+    )]
+    Daemon {
+        /// 从 cassette 回放（所有 fetch）· Replay a cassette for every fetch
+        #[arg(long, value_name = "FILE")]
+        replay: Option<PathBuf>,
+    },
+
+    /// 会话句柄客户端（open/get/refresh/list/close/ping）· Talk to the daemon
+    #[command(
+        after_help = "EXAMPLES / 例子:\n  cb session open https://example.com\n  cb session get @1 --since 1\n  cb session list\n  cb session close @1"
+    )]
+    Session(commands::session::SessionArgs),
 
     /// 本地 Web 镜像（SSE 推送同一份阅读视图）· Local web mirror over SSE
     Webui {
@@ -1626,6 +1652,27 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 Ok(0)
             }
         },
+        Cmd::Daemon { replay } => {
+            let daemon = std::sync::Arc::new(tokio::sync::Mutex::new(cb_session::Daemon::new(
+                ctx.clone(),
+                replay.clone(),
+            )));
+            let pipe = cli.pipe.clone();
+            eprintln!(
+                "cb: daemon listening on {} (Ctrl-C to stop)",
+                cb_session::transport::endpoint_label(&pipe)
+            );
+            tokio::select! {
+                served = cb_session::transport::serve(&pipe, daemon) => {
+                    served.map_err(|e| CbError::other(format!("daemon: {e}")))?;
+                }
+                _ = tokio::signal::ctrl_c() => {}
+            }
+            Ok(0)
+        }
+        Cmd::Session(args) => {
+            commands::session::run(args, &cli.pipe, cli.json, started, ctx.profile.as_str()).await
+        }
         Cmd::Webui { port, url } => {
             let addr = cb_webui::serve(ctx.clone(), *port, url.clone()).await?;
             println!("{addr}");

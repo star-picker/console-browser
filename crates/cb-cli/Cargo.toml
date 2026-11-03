@@ -17,6 +17,7 @@ cb-tui = { version = "0.1.0", path = "../cb-tui" }
 cb-webui = { version = "0.1.0", path = "../cb-webui" }
 cb-plugins = { version = "0.1.0", path = "../cb-plugins" }
 cb-js = { version = "0.1.0", path = "../cb-js" }
+cb-session = { version = "0.1.0", path = "../cb-session" }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 dirs = "7.0.0"
 rustyline = "19.0.0"

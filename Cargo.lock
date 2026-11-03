@@ -465,6 +465,7 @@ dependencies = [
  "cb-mcp",
  "cb-net",
  "cb-plugins",
+ "cb-session",
  "cb-store",
  "cb-tui",
  "cb-webui",
@@ -595,6 +596,22 @@ dependencies = [
  "cb-extract",
  "serde",
  "unicode-width",
+]
+
+[[package]]
+name = "cb-session"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cb-core",
+ "cb-extract",
+ "cb-net",
+ "cb-store",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
