@@ -160,3 +160,33 @@ fn tabs_session_roundtrip() {
     store.save_tabs(&[]).expect("clear");
     assert!(store.load_tabs().expect("load").is_empty());
 }
+#[test]
+fn history_fts_matches_title_and_url() {
+    let store = cb_store::Store::open_in_memory().expect("store");
+    for (title, url) in [
+        ("rust async runtime", "https://a.example/rust"),
+        ("python packaging", "https://b.example/python"),
+    ] {
+        store
+            .append_history(&cb_store::HistoryRow {
+                id: 0,
+                ts: 1_700_000_000,
+                url: url.to_string(),
+                title: title.to_string(),
+                kind: "fetch".to_string(),
+                session_id: None,
+                duration_ms: 1,
+                ok: true,
+            })
+            .expect("append");
+    }
+    let hits = store.search_history_fts("rust", 10).expect("fts");
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert!(hits[0].title.contains("rust"));
+    let url_hits = store.search_history_fts("python", 10).expect("fts");
+    assert_eq!(url_hits.len(), 1);
+    assert!(store
+        .search_history_fts("nonexistentterm", 10)
+        .expect("fts")
+        .is_empty());
+}

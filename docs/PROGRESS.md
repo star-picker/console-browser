@@ -1,3 +1,9 @@
+### 设计文档：FTS5 历史检索
+
+- 存储层 schema 升到 **v4**：新增 `history_fts`（FTS5，`content='history'`）+ 增/删/改三个触发器；升级老库时执行一次 `rebuild` 把已有历史灌进索引（幂等）。
+- 新方法 `search_history_fts(q, limit)`：标题 + URL 全文检索，按时间倒序。
+- `cb history <词>` 优先走 FTS5；查询语法非法时自动退化成原来的 LIKE，不让用户看到 SQL 报错。
+- 测试：`store_crud` 新增一条（标题命中 rust、URL 命中 python、未知词为空）。
 ### 设计文档：bookmarks（收藏）落地
 
 - 存储层：`add_bookmark`（同 URL 覆盖标题、幂等）、`list_bookmarks`（按时间倒序）、`remove_bookmark`（返回是否删掉）。

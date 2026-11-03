@@ -12,7 +12,7 @@ pub mod secrets;
 pub use jar::StoreCookieJar;
 pub use secrets::{default_secret_box, PlainBox, SecretBox};
 
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 4;
 
 /// 缓存保留 7 天，历史 90 天，日志 14 天。
 pub const CACHE_RETENTION_SECS: i64 = 7 * 86_400;
@@ -129,6 +129,19 @@ CREATE TABLE IF NOT EXISTS bookmarks(
   title TEXT NOT NULL,
   ts INTEGER NOT NULL
 );
+CREATE VIRTUAL TABLE IF NOT EXISTS history_fts USING fts5(
+  title, url, content='history', content_rowid='id'
+);
+CREATE TRIGGER IF NOT EXISTS history_ai AFTER INSERT ON history BEGIN
+  INSERT INTO history_fts(rowid,title,url) VALUES (new.id,new.title,new.url);
+END;
+CREATE TRIGGER IF NOT EXISTS history_ad AFTER DELETE ON history BEGIN
+  INSERT INTO history_fts(history_fts,rowid,title,url) VALUES('delete',old.id,old.title,old.url);
+END;
+CREATE TRIGGER IF NOT EXISTS history_au AFTER UPDATE ON history BEGIN
+  INSERT INTO history_fts(history_fts,rowid,title,url) VALUES('delete',old.id,old.title,old.url);
+  INSERT INTO history_fts(rowid,title,url) VALUES (new.id,new.title,new.url);
+END;
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -276,6 +289,8 @@ fn prepare(conn: &Connection) -> Result<()> {
     let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     if version < SCHEMA_VERSION {
         conn.execute_batch(SCHEMA_SQL).context("apply schema")?;
+        conn.execute_batch("INSERT INTO history_fts(history_fts) VALUES('rebuild');")
+            .context("rebuild history fts")?;
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     Ok(())
@@ -471,6 +486,27 @@ impl Store {
         Ok(n > 0)
     }
 
+    pub fn search_history_fts(&self, q: &str, limit: usize) -> Result<Vec<HistoryRow>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT h.id,h.ts,h.url,h.title,h.kind,h.session_id,h.duration_ms,h.ok FROM history h WHERE h.id IN (SELECT rowid FROM history_fts WHERE history_fts MATCH ?1) ORDER BY h.ts DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![q, limit as i64], |r| {
+                Ok(HistoryRow {
+                    id: r.get(0)?,
+                    ts: r.get(1)?,
+                    url: r.get(2)?,
+                    title: r.get(3)?,
+                    kind: r.get(4)?,
+                    session_id: r.get(5)?,
+                    duration_ms: r.get(6)?,
+                    ok: r.get::<_, i64>(7)? != 0,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
     pub fn list_history(&self, q: Option<&str>, limit: usize) -> Result<Vec<HistoryRow>> {
         let conn = self.lock();
         let limit = limit as i64;

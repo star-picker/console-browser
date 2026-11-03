@@ -702,10 +702,20 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             Ok(0)
         }
         Cmd::History { query, limit } => {
-            let rows = ctx
-                .store
-                .list_history(query.as_deref(), *limit)
-                .map_err(cb_core::error::store_err)?;
+            let rows = match query.as_deref() {
+                // 有查询词先走 FTS5；查询语法不合法时退化成 LIKE，不让用户看到 SQL 报错。
+                Some(q) => match ctx.store.search_history_fts(q, *limit) {
+                    Ok(rows) => rows,
+                    Err(_) => ctx
+                        .store
+                        .list_history(Some(q), *limit)
+                        .map_err(cb_core::error::store_err)?,
+                },
+                None => ctx
+                    .store
+                    .list_history(None, *limit)
+                    .map_err(cb_core::error::store_err)?,
+            };
             if cli.json {
                 let envelope = Envelope::ok(
                     output::meta(
