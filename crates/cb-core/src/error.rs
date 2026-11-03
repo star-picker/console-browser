@@ -145,7 +145,7 @@ impl CbError {
     pub fn exit_code(&self) -> i32 {
         match self.body.code.as_str() {
             "usage" => EXIT_USAGE,
-            "network" | "not_recorded" => EXIT_NETWORK,
+            "network" | "not_recorded" | "dns_error" => EXIT_NETWORK,
             "challenge_unsolved" => EXIT_CHALLENGE,
             "js_error" => EXIT_JS,
             "not_found" => EXIT_NOT_FOUND,
@@ -174,6 +174,9 @@ impl From<cb_net::NetError> for CbError {
                 false,
             ),
             cb_net::NetError::Http(status) => CbError::network(format!("http status {status}")),
+            // 域名解析不了：重试一万次结果一样，明确标不可重试。
+            cb_net::NetError::Dns(message) => CbError::new("dns_error", message.clone(), false),
+            cb_net::NetError::Timeout(message) => CbError::timeout(message.clone()),
             _ => CbError::network(e.to_string()),
         }
     }
@@ -194,6 +197,7 @@ mod tests {
             ("usage", EXIT_USAGE),
             ("network", EXIT_NETWORK),
             ("not_recorded", EXIT_NETWORK),
+            ("dns_error", EXIT_NETWORK),
             ("challenge_unsolved", EXIT_CHALLENGE),
             ("js_error", EXIT_JS),
             ("not_found", EXIT_NOT_FOUND),
@@ -209,6 +213,30 @@ mod tests {
             let err = CbError::new(code, "x", false);
             assert_eq!(err.exit_code(), expected, "code {code}");
         }
+    }
+
+    #[test]
+    fn dns_failures_are_not_retryable_and_name_the_host() {
+        let err: CbError = cb_net::NetError::Dns(
+            "DNS lookup failed for nope.example: dns error: failed to lookup address information"
+                .to_string(),
+        )
+        .into();
+        assert_eq!(err.body.code, "dns_error");
+        assert!(!err.body.retryable, "DNS failures must not be retried");
+        assert!(
+            err.body.message.contains("nope.example"),
+            "message must name the host: {}",
+            err.body.message
+        );
+        assert_eq!(err.exit_code(), EXIT_NETWORK);
+    }
+
+    #[test]
+    fn plain_network_failures_stay_retryable() {
+        let err: CbError = cb_net::NetError::Network("connection refused".to_string()).into();
+        assert_eq!(err.body.code, "network");
+        assert!(err.body.retryable);
     }
 
     #[test]

@@ -438,3 +438,26 @@ fn http_429_without_retry_after_defaults_to_five_seconds() {
     assert_eq!(v["error"]["code"], "rate_limited", "{v}");
     assert_eq!(v["error"]["retry_after_s"], 5, "{v}");
 }
+
+#[test]
+#[ignore = "needs a real DNS lookup (offline CI cannot resolve anything)"]
+fn missing_domain_reports_dns_error_not_network() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = cb(&dir)
+        .args(["fetch", "https://this-domain-does-not-exist-xyz.example"])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let v = parse(&out);
+    assert_eq!(v["error"]["code"], "dns_error", "{v}");
+    assert_eq!(v["error"]["retryable"], false, "{v}");
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("this-domain-does-not-exist-xyz"),
+        "message must name the host: {v}"
+    );
+}

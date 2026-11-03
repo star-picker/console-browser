@@ -63,3 +63,17 @@ fn cache_key_is_stable_and_discriminating() {
         cache_key("POST", "https://example.com/a", Profile::Chrome, false)
     );
 }
+
+#[test]
+fn dns_error_signatures_are_recognised() {
+    for msg in [
+        "dns error: failed to lookup address information: Name or service not known",
+        "failed to lookup address information: nodename nor servname provided",
+        "error sending request: dns resolution failed",
+        "getaddrinfo EAI_AGAIN nope.example",
+    ] {
+        assert!(cb_net::looks_like_dns_error(msg), "should be DNS: {msg}");
+    }
+    assert!(!cb_net::looks_like_dns_error("connection refused"));
+    assert!(!cb_net::looks_like_dns_error("operation timed out"));
+}

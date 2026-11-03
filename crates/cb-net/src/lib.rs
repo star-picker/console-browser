@@ -126,6 +126,12 @@ pub enum NetError {
     NotRecorded(String),
     #[error("network error: {0}")]
     Network(String),
+    /// DNS 解析失败：域名不存在/解析不了，重试没有意义。
+    #[error("{0}")]
+    Dns(String),
+    /// 请求超时（连接或读取）：可重试。
+    #[error("timeout: {0}")]
+    Timeout(String),
     #[error("http error: status {0}")]
     Http(u16),
     #[error("io error: {0}")]
@@ -134,9 +140,60 @@ pub enum NetError {
     Cassette(String),
 }
 
+/// 底层错误链里是不是 DNS 解析失败。
+///
+/// 各家底层库措辞不同（hyper/rustls/getaddrinfo），按已知特征串判，宁可漏判成
+/// network（可重试）也不要把真网络问题标成不可重试。
+pub fn looks_like_dns_error(message: &str) -> bool {
+    let m = message.to_ascii_lowercase();
+    [
+        "dns error",
+        "dns resolution",
+        "failed to lookup address",
+        "name or service not known",
+        "nodename nor servname",
+        "no such host",
+        "getaddrinfo",
+        "failed to resolve",
+    ]
+    .iter()
+    .any(|needle| m.contains(needle))
+}
+
+/// 把 wreq 错误本身与 source 链拼成一条可诊断的字符串。
+fn error_chain_text(e: &wreq::Error) -> String {
+    use std::error::Error as _;
+    let mut out = e.to_string();
+    let mut source = e.source();
+    while let Some(s) = source {
+        out.push_str(": ");
+        out.push_str(&s.to_string());
+        source = s.source();
+    }
+    if let Some(url) = e.url() {
+        if !out.contains(url.as_str()) {
+            out.push_str(" (url: ");
+            out.push_str(url.as_str());
+            out.push(')');
+        }
+    }
+    out
+}
+
 impl From<wreq::Error> for NetError {
     fn from(e: wreq::Error) -> Self {
-        NetError::Network(e.to_string())
+        let detail = error_chain_text(&e);
+        if looks_like_dns_error(&detail) {
+            let host = e.url().and_then(|u| u.host_str()).map(|h| h.to_string());
+            return match host {
+                Some(host) => NetError::Dns(format!("DNS lookup failed for {host}: {detail}")),
+                None => NetError::Dns(format!("DNS lookup failed: {detail}")),
+            };
+        }
+        if e.is_timeout() {
+            return NetError::Timeout(detail);
+        }
+        NetError::Network(detail)
     }
 }
 
