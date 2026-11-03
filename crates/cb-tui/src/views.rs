@@ -14,6 +14,8 @@ const ACCENT2: Color = Color::Magenta;
 const DIM: Color = Color::DarkGray;
 const WARN: Color = Color::Yellow;
 const ERR: Color = Color::Red;
+/// 链接色（比普通正文亮，配下划线）。
+const LINK: Color = Color::LightBlue;
 
 /// ascii 模式下用纯 ASCII 替代线框字符。
 fn glyph<'a>(app: &App, unicode: &'a str, ascii: &'a str) -> &'a str {
@@ -32,7 +34,7 @@ fn plain_if_mono(app: &App, style: Style) -> Style {
     }
 }
 
-fn map_style(style: RdStyle, focused: bool, found: bool) -> Style {
+fn map_style(style: RdStyle, is_link: bool, focused: bool, found: bool) -> Style {
     let mut out = match style {
         RdStyle::Normal => Style::default(),
         RdStyle::Bold => Style::default().add_modifier(Modifier::BOLD),
@@ -45,6 +47,10 @@ fn map_style(style: RdStyle, focused: bool, found: bool) -> Style {
         RdStyle::NoticeWarn => Style::default().fg(WARN).add_modifier(Modifier::BOLD),
         RdStyle::NoticeError => Style::default().fg(ERR).add_modifier(Modifier::BOLD),
     };
+    // 链接要一眼能认出来：蓝色 + 下划线（聚焦时反色）。
+    if is_link {
+        out = out.fg(LINK).add_modifier(Modifier::UNDERLINED);
+    }
     if focused {
         out = out.add_modifier(Modifier::REVERSED);
     }
@@ -221,9 +227,10 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
             .map(|cell| {
                 let focused = cell.link.is_some() && cell.link == focus;
                 let found_here = found && !is_current_match;
+                let is_link = cell.link.is_some();
                 TSpan::styled(
                     cell.text.clone(),
-                    map_style(cell.style, focused, found_here),
+                    map_style(cell.style, is_link, focused, found_here),
                 )
             })
             .collect();
@@ -588,6 +595,19 @@ mod tests {
         assert!(screen.contains("hello"), "{screen}");
         let _: Option<Effect> = None;
     }
+    #[test]
+    fn links_are_visually_distinct_from_body_text() {
+        let link = crate::views::map_style(RdStyle::Normal, true, false, false);
+        let body = crate::views::map_style(RdStyle::Normal, false, false, false);
+        assert!(
+            link.add_modifier.contains(Modifier::UNDERLINED),
+            "links must be underlined: {link:?}"
+        );
+        assert!(!body.add_modifier.contains(Modifier::UNDERLINED));
+        let focused = crate::views::map_style(RdStyle::Normal, true, true, false);
+        assert!(focused.add_modifier.contains(Modifier::REVERSED));
+    }
+
     #[test]
     fn language_toggle_switches_all_ui_text() {
         use cb_core::i18n::{self, Lang};

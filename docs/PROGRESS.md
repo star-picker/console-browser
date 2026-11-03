@@ -1,3 +1,8 @@
+### 实机反馈：正文链接不可辨、图片看不到
+
+- **链接**：`map_style` 新增链接样式（浅蓝 `LINK` + 下划线），聚焦时反色；正文里的 `<a>` 现在一眼能认出来，Tab 循环聚焦后状态栏显示 URL，Enter 打开。新增测试（链接必须有 UNDERLINED，正文没有，聚焦必须 REVERSED）。
+- **图片**：终端渲染不了位图，这是硬限制 —— 正确路径是 webui（`cb webui`）或 `cb export --to html`。为此给 webui 补上真图片：`LineView` 增加 `url` 字段，`Block::Image` 带原始地址，前端用 `<img loading=lazy>` 渲染并保留图注；样式加了 `max-width:100%` 与圆角。
+- 同时说明：微信文章的图片走懒加载属性链（`data-src`）已被抽取器保留，webui 里能显示；TUI 里在正文中不画图（避免 `[img:]` 噪声）。
 ### `cb db stats` 覆盖新表
 
 - `Store::counts()` 原来只数 pages/cache_entries/history/logs，现在补上 bookmarks、page_revisions、site_strategy、cookies、tabs（v3~v6 新增的表）。

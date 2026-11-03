@@ -21,6 +21,9 @@ use tokio::sync::RwLock;
 pub struct LineView {
     pub text: String,
     pub kind: String,
+    /// kind == "img" 时的图片地址（webui 能真显示图，终端不能）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 /// 推给前端的一帧：地址栏 + 标题 + 状态 + 正文行。
@@ -67,10 +70,12 @@ pub fn lines_from_doc(doc: &RenderDoc) -> Vec<LineView> {
             Block::Heading { level, spans } => out.push(LineView {
                 text: spans_text(spans),
                 kind: format!("h{}", (*level).clamp(1, 6)),
+                url: None,
             }),
             Block::Paragraph { spans } => out.push(LineView {
                 text: spans_text(spans),
                 kind: "p".to_string(),
+                url: None,
             }),
             Block::ListItem {
                 depth,
@@ -84,6 +89,7 @@ pub fn lines_from_doc(doc: &RenderDoc) -> Vec<LineView> {
                     spans_text(spans)
                 ),
                 kind: "li".to_string(),
+                url: None,
             }),
             Block::Code { lang, lines } => {
                 let mut text = lines.join("\n");
@@ -93,6 +99,7 @@ pub fn lines_from_doc(doc: &RenderDoc) -> Vec<LineView> {
                 out.push(LineView {
                     text,
                     kind: "pre".to_string(),
+                    url: None,
                 });
             }
             Block::Quote { blocks } => {
@@ -100,6 +107,7 @@ pub fn lines_from_doc(doc: &RenderDoc) -> Vec<LineView> {
                 out.push(LineView {
                     text: inner,
                     kind: "quote".to_string(),
+                    url: None,
                 });
             }
             Block::Table { head, rows } => {
@@ -111,15 +119,22 @@ pub fn lines_from_doc(doc: &RenderDoc) -> Vec<LineView> {
                 out.push(LineView {
                     text,
                     kind: "table".to_string(),
+                    url: None,
                 });
             }
             Block::Rule => out.push(LineView {
                 text: String::new(),
                 kind: "hr".to_string(),
+                url: None,
             }),
             Block::Image { alt, url } => out.push(LineView {
-                text: format!("{alt} {url}"),
+                text: if alt.trim().is_empty() {
+                    "图片".to_string()
+                } else {
+                    alt.clone()
+                },
                 kind: "img".to_string(),
+                url: Some(url.clone()),
             }),
             Block::Notice {
                 level,
@@ -133,6 +148,7 @@ pub fn lines_from_doc(doc: &RenderDoc) -> Vec<LineView> {
                     spans_text(spans)
                 ),
                 kind: "notice".to_string(),
+                url: None,
             }),
         }
     }
@@ -208,6 +224,7 @@ pub async fn load_snapshot(ctx: &cb_core::Ctx, url: &str) -> anyhow::Result<Snap
             lines: vec![LineView {
                 text: outcome.markdown.clone(),
                 kind: "pre".to_string(),
+                url: None,
             }],
         });
     }

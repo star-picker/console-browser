@@ -28,7 +28,9 @@
   main .notice { background: #2a2313; border: 1px solid #6b5a1f; border-radius: 8px;
                  padding: 10px 14px; margin: 12px 0; }
   main .table { font-family: ui-monospace, Consolas, monospace; white-space: pre-wrap; }
-  main .img { color: #8b93a1; font-size: 13px; }
+  main .img { margin: 14px 0; color: #8b93a1; font-size: 13px; }
+  main .img img { max-width: 100%; height: auto; border-radius: 8px; display: block; }
+  main .img figcaption { margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -46,7 +48,12 @@ function el(kind, text) {
   if (kind === 'pre' || kind === 'table') { const n = document.createElement('pre'); n.textContent = text; return n; }
   if (kind === 'quote') { const n = document.createElement('blockquote'); n.textContent = text; return n; }
   if (kind === 'notice') { const n = document.createElement('div'); n.className = 'notice'; n.textContent = text; return n; }
-  if (kind === 'img') { const n = document.createElement('div'); n.className = 'img'; n.textContent = text; return n; }
+  if (kind === 'img') {
+    const n = document.createElement('figure');
+    n.className = 'img';
+    if (text && text !== '图片') { const cap = document.createElement('figcaption'); cap.textContent = text; n.appendChild(cap); }
+    return n;
+  }
   if (/^h[1-6]$/.test(kind)) { const n = document.createElement(kind); n.textContent = text; return n; }
   if (kind === 'li') { const n = document.createElement('div'); n.textContent = '• ' + text; return n; }
   const n = document.createElement('p'); n.textContent = text; return n;
@@ -55,7 +62,17 @@ function render(snap) {
   status.textContent = snap.status + ' · ' + snap.url;
   document.title = snap.title || snap.url || 'cb';
   if (document.activeElement !== url) url.value = snap.url;
-  page.replaceChildren(...snap.lines.map(l => el(l.kind, l.text)));
+  page.replaceChildren(...snap.lines.map(l => {
+    const node = el(l.kind, l.text);
+    if (l.kind === 'img' && l.url) {
+      const img = document.createElement('img');
+      img.src = l.url;
+      img.loading = 'lazy';
+      img.alt = l.text || '';
+      node.prepend(img);
+    }
+    return node;
+  }));
   window.scrollTo({ top: 0 });
 }
 const es = new EventSource('/events');
