@@ -1,3 +1,9 @@
+### cb-js 第三步：BOM 桩（location / localStorage / navigator / console）
+
+- `install_bom(url, lang)`：`location.href/host`、`navigator.userAgent/language`、内存版 `localStorage`（getItem/setItem/removeItem/clear）、`console.log/warn/error` 收集到 `__cb_log`。
+- `cb js <url> --code …` 现在先装 DOM 再装 BOM，脚本里能读 `location.host`、做 `localStorage` 读写。
+- 测试新增一条（location.host、navigator.language、localStorage 往返）。
+- 仍欠：`fetch` 桥（走 cb-net 保指纹/cookie）—— 下一个增量。
 ### cb-js 第二步：DOM 快照 + querySelectorAll
 
 - `install_html(html)`：用 scraper 解析，把 `title` / `body.innerText` / 元素快照（tag/id/class/text，最多 400 个）装进 QuickJS。

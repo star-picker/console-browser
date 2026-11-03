@@ -60,8 +60,39 @@ impl JsRuntime {
         let prelude = include_str!("prelude.js")
             .replace("__TITLE__", &json_literal(&title_text))
             .replace("__TEXT__", &json_literal(&body_text))
-            .replace("__ELS__", &els);
+            .replace("__ELS__", &els)
+            .replace("__URL__", "''")
+            .replace("__LANG__", "''");
         self.ctx.with(|ctx| ctx.eval::<(), _>(prelude.as_bytes()))?;
+        Ok(())
+    }
+
+    /// 装 BOM 桩：location / localStorage / navigator / console。
+    pub fn install_bom(&self, url: &str, lang: &str) -> Result<()> {
+        let js = format!(
+            "globalThis.location = {{ href: {}, host: {} }};",
+            json_literal(url),
+            json_literal(
+                url.trim_start_matches("https://")
+                    .trim_start_matches("http://")
+                    .split('/')
+                    .next()
+                    .unwrap_or("")
+            )
+        );
+        let js = format!(
+            "{js} globalThis.navigator = {{ userAgent: 'cb-js/1', language: '{}' }};",
+            lang
+        );
+        let ls_js = concat!(
+            "globalThis.localStorage = (function(){ const m = new Map(); return { ",
+            "getItem: (k) => (m.has(k) ? m.get(k) : null), ",
+            "setItem: (k, v) => { m.set(String(k), String(v)); }, ",
+            "removeItem: (k) => { m.delete(k); }, clear: () => { m.clear(); } }; })();",
+            "globalThis.__cb_log = []; globalThis.console = { log: (...a) => { __cb_log.push(a.map(String).join(' ')); } };"
+        );
+        let js = format!("{js}{ls_js}");
+        self.ctx.with(|ctx| ctx.eval::<(), _>(js.as_bytes()))?;
         Ok(())
     }
 
@@ -119,6 +150,20 @@ mod tests {
         let rt = JsRuntime::new().expect("runtime");
         assert_eq!(rt.eval("1 + 1").expect("eval"), "2");
         assert_eq!(rt.eval("'cb'.toUpperCase()").expect("eval"), "CB");
+    }
+
+    #[test]
+    fn bom_stubs_exist() {
+        let rt = JsRuntime::new().expect("runtime");
+        rt.install_bom("https://example.com/x?q=1", "zh-CN")
+            .expect("bom");
+        assert_eq!(rt.eval("location.host").expect("host"), "example.com");
+        assert_eq!(rt.eval("navigator.language").expect("lang"), "zh-CN");
+        assert_eq!(
+            rt.eval("localStorage.setItem('k','v'); localStorage.getItem('k')")
+                .expect("ls"),
+            "v"
+        );
     }
 
     #[test]
