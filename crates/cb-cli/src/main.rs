@@ -1275,7 +1275,7 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 };
                 let outcome = cb_core::fetch_page(ctx, &opts).await?;
                 engine
-                    .install_document(&outcome.title, &outcome.markdown)
+                    .install_html(&outcome.raw)
                     .map_err(|e| CbError::js(e.to_string()))?;
             }
             let code = code.clone().unwrap_or_else(|| "document.title".to_string());

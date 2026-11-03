@@ -8,6 +8,15 @@
 
 use anyhow::Result;
 
+/// 元素快照：够 querySelectorAll 做 id/class/tag 三种匹配。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ElSnap {
+    pub tag: String,
+    pub id: String,
+    pub class: String,
+    pub text: String,
+}
+
 /// 一个 JS 运行时；一个上下文执行一个页面的脚本。
 pub struct JsRuntime {
     ctx: rquickjs::Context,
@@ -33,6 +42,50 @@ impl JsRuntime {
         Ok(())
     }
 
+    /// 从 HTML 装 DOM 桩：title / body.innerText / querySelectorAll（id|class|tag）。
+    pub fn install_html(&self, html: &str) -> Result<()> {
+        use scraper::{Html, Selector};
+        let doc = Html::parse_document(html);
+        let title = Selector::parse("title").ok();
+        let body = Selector::parse("body").ok();
+        let title_text = title
+            .and_then(|sel| doc.select(&sel).next())
+            .map(|t| t.text().collect::<Vec<_>>().join(" "))
+            .unwrap_or_default();
+        let body_text = body
+            .and_then(|sel| doc.select(&sel).next())
+            .map(|b| b.text().collect::<Vec<_>>().join(" "))
+            .unwrap_or_default();
+        let els = serde_json::to_string(&Self::elements(html)).unwrap_or_else(|_| "[]".to_string());
+        let prelude = include_str!("prelude.js")
+            .replace("__TITLE__", &json_literal(&title_text))
+            .replace("__TEXT__", &json_literal(&body_text))
+            .replace("__ELS__", &els);
+        self.ctx.with(|ctx| ctx.eval::<(), _>(prelude.as_bytes()))?;
+        Ok(())
+    }
+
+    /// 元素快照（最多 400 个）：tag / id / class / text。
+    pub fn elements(html: &str) -> Vec<ElSnap> {
+        use scraper::{Html, Selector};
+        let doc = Html::parse_document(html);
+        let Ok(selector) = Selector::parse("*") else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for el in doc.select(&selector) {
+            out.push(ElSnap {
+                tag: el.value().name().to_string(),
+                id: el.value().attr("id").unwrap_or("").to_string(),
+                class: el.value().attr("class").unwrap_or("").to_string(),
+                text: el.text().collect::<Vec<_>>().join(" ").trim().to_string(),
+            });
+            if out.len() >= 400 {
+                break;
+            }
+        }
+        out
+    }
     /// 执行一段脚本，返回最后表达式的字符串（对象则 JSON 序列化）。
     pub fn eval(&self, code: &str) -> Result<String> {
         let out = self.ctx.with(|ctx| {
@@ -66,6 +119,29 @@ mod tests {
         let rt = JsRuntime::new().expect("runtime");
         assert_eq!(rt.eval("1 + 1").expect("eval"), "2");
         assert_eq!(rt.eval("'cb'.toUpperCase()").expect("eval"), "CB");
+    }
+
+    #[test]
+    fn install_html_exposes_queryselectorall() {
+        let rt = JsRuntime::new().expect("runtime");
+        let html = "<html><head><title>T</title></head><body><div class=\"a b\">一</div><div class=\"a\">二</div><p id=\"main\">三</p></body></html>";
+        rt.install_html(html).expect("install");
+        assert_eq!(rt.eval("document.title").expect("title"), "T");
+        assert_eq!(
+            rt.eval("document.querySelectorAll('.a').length")
+                .expect("class"),
+            "2"
+        );
+        assert_eq!(
+            rt.eval("document.querySelectorAll('#main').length")
+                .expect("id"),
+            "1"
+        );
+        assert_eq!(
+            rt.eval("document.querySelectorAll('p')[0].textContent")
+                .expect("tag"),
+            "三"
+        );
     }
 
     #[test]

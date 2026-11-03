@@ -1,3 +1,10 @@
+### cb-js 第二步：DOM 快照 + querySelectorAll
+
+- `install_html(html)`：用 scraper 解析，把 `title` / `body.innerText` / 元素快照（tag/id/class/text，最多 400 个）装进 QuickJS。
+- 在 JS 侧实现 `document.querySelectorAll(sel)`：支持 `#id`、`.class`、`tag` 三种选择；返回对象带 `textContent` 别名。
+- `cb js <url> --code "document.querySelectorAll('h1')[0].textContent"` 现在能真的从页面里取元素文本。
+- Ruling：DOM 仍不是完整树（没有子树查询/属性写入/事件），这是**只读快照**——够读内容、不够跑框架；完整 DOM + BOM + fetch 桥仍在队列里，避免半成品伪装成浏览器。
+- 测试：`install_html` 三条（title、`.a`→2、`#main`→1、`p[0].textContent`）。
 ### 设计文档：page_revisions（正文版本差量）
 
 - schema 升到 **v6**：`page_revisions(url, ts, sha, chars, paragraphs)` + `(url, ts DESC)` 索引（只记指纹与体量，不存全文，库不会膨胀）。
