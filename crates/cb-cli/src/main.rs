@@ -671,7 +671,7 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                             output::meta(elapsed, outcome.cached, ctx.profile.as_str()),
                             outcome.cache_age_s,
                         ),
-                        &outcome.markdown,
+                        &outcome,
                     ),
                     data,
                 );
@@ -714,7 +714,7 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     output::meta(elapsed, outcome.cached, ctx.profile.as_str()),
                     outcome.cache_age_s,
                 ),
-                &outcome.markdown,
+                &outcome,
             );
             if let Some(path) = &args.out {
                 std::fs::write(path, &content)

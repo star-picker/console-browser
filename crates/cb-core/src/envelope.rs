@@ -28,7 +28,7 @@ pub struct CacheMeta {
 pub struct ExtractMeta {
     pub chars: usize,
     pub paragraphs: usize,
-    /// 主内容容器得分（暂未接入，保留字段位）。
+    /// 主内容容器得分：选中容器正文占整页的比例（链接密度已扣分）。
     pub container_score: Option<f64>,
 }
 

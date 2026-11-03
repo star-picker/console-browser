@@ -62,6 +62,10 @@ fn fetch_md_json_shape_and_cache_hit() {
     assert_eq!(v["data"]["status"], 200);
     assert_eq!(v["data"]["title"], "Example Page");
     assert!(v["data"]["tokens_estimate"].as_u64().unwrap() > 0);
+    let score = v["meta"]["extract"]["container_score"]
+        .as_f64()
+        .expect("container_score must be a real number, not null");
+    assert!((0.0..=1.0).contains(&score), "score out of range: {score}");
 
     let out2 = cb(&dir)
         .args(["fetch", "https://example.com/a", "--replay", &cassette])

@@ -32,6 +32,10 @@ pub struct Markdown {
     pub links: Vec<Link>,
     pub images: Vec<Image>,
     pub truncated: bool,
+    /// 选中容器的正文字数占整页正文的比例（0.0-1.0，链接密度会扣分）。
+    /// 调用方用它判断「抓没抓错容器」；列表页/整页包裹会明显偏低。
+    #[serde(default)]
+    pub container_score: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -584,6 +588,7 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
         }
     };
 
+    let container_score = container_score_of(&doc, root);
     let all_links: Vec<Link> = match sel("a") {
         Some(s) => root
             .select(&s)
@@ -676,7 +681,24 @@ pub fn extract_markdown(html: &str, opts: &ExtractOpts) -> anyhow::Result<Markdo
         links,
         images,
         truncated,
+        container_score,
     })
+}
+
+/// 容器得分：选中容器的文本占 body 的比例，再按容器内链接密度扣分。
+///
+/// 只看绝对字符数无法区分「抓对了」和「抓多了」；列表页与整页包裹层
+/// 文本不少但链接密度高，必须压下去。
+fn container_score_of(doc: &Document, root: ElementRef<'_>) -> Option<f64> {
+    let body = doc.body()?;
+    let body_len = doc.text_of(body).chars().count();
+    if body_len == 0 {
+        return None;
+    }
+    let root_len = doc.text_of(root).chars().count();
+    let share = (root_len as f64 / body_len as f64).clamp(0.0, 1.0);
+    let density = doc.link_density(root);
+    Some((share * (1.0 - density)).clamp(0.0, 1.0))
 }
 
 /// 连续空行压成一个空行；图片独立成行会制造多余换行。

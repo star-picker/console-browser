@@ -24,8 +24,9 @@ pub fn with_cache(mut meta: Meta, age_s: Option<i64>) -> Meta {
     meta
 }
 
-/// 附上抽取统计：字符数 / 段落数，便于调用方判断正文质量。
-pub fn with_extract(mut meta: Meta, markdown: &str) -> Meta {
+/// 附上抽取统计：字符数 / 段落数 / 容器得分，便于调用方判断正文质量。
+pub fn with_extract(mut meta: Meta, outcome: &cb_core::FetchOutcome) -> Meta {
+    let markdown = &outcome.markdown;
     let paragraphs = markdown
         .split("\n\n")
         .filter(|p| !p.trim().is_empty())
@@ -33,7 +34,7 @@ pub fn with_extract(mut meta: Meta, markdown: &str) -> Meta {
     meta.extract = Some(cb_core::ExtractMeta {
         chars: markdown.chars().count(),
         paragraphs,
-        container_score: None,
+        container_score: outcome.container_score,
     });
     meta
 }
