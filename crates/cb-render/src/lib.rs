@@ -235,8 +235,12 @@ impl Layout {
     fn render_block(&mut self, block: &Block, width: usize, out: &mut Vec<Line>) {
         match block {
             Block::Heading { level, spans } => {
-                let prefix = format!("{} ", "#".repeat((*level).clamp(1, 6) as usize));
-                for line in wrap_cells(&to_styled(spans), width, &prefix, "  ") {
+                // 浏览器式：不画 "#"，只留层级间距；标题本身加粗靠 Style::Heading。
+                if !out.is_empty() {
+                    out.push(Line::default());
+                }
+                let _ = level;
+                for line in wrap_cells(&to_styled(spans), width, "", "") {
                     out.push(line);
                 }
             }

@@ -19,3 +19,4 @@ pub use driver::{run as run_tui, DriverOpts};
 pub use editbuffer::EditBuffer;
 pub use keymap::key_to_action;
 pub use mode::{InputKind, Mode, OverlayKind};
+pub use views::{content_width, dump_screen};

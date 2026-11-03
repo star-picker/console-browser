@@ -107,6 +107,21 @@ enum Cmd {
     /// 人工接力登录 · Human-in-the-loop login (browser window or paste cookies)
     Login(commands::login::LoginArgs),
 
+    /// 离屏渲染 TUI 一帧（文本截图，便于预览排版）· Render one TUI frame offscreen
+    Render {
+        /// 目标 URL · Target URL
+        url: String,
+        /// 宽 · Width
+        #[arg(long, default_value_t = 120)]
+        width: u16,
+        /// 高 · Height
+        #[arg(long, default_value_t = 40)]
+        height: u16,
+        /// 从 cassette 回放 · Replay a cassette
+        #[arg(long, value_name = "FILE")]
+        replay: Option<PathBuf>,
+    },
+
     /// 纯文本输出（管道友好）· Plain text output for pipes
     Plain {
         /// 目标 URL · Target URL
@@ -934,6 +949,45 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 println!("saved {} cookies for {url}", cookies.len());
                 println!("reload the page (r) to use the session");
             }
+            Ok(0)
+        }
+        Cmd::Render {
+            url,
+            width,
+            height,
+            replay,
+        } => {
+            let url = (*url).clone();
+            let width = *width;
+            let height = *height;
+            let replay = replay.clone();
+            let opts = cb_core::FetchOpts {
+                url: url.clone(),
+                format: cb_core::Format::Text,
+                replay: replay.clone(),
+                ..Default::default()
+            };
+            let outcome = cb_core::fetch_page(ctx, &opts).await?;
+            let doc = outcome
+                .doc
+                .clone()
+                .ok_or_else(|| CbError::other("no render doc (fetch did not parse HTML)"))?;
+            let mut app = cb_tui::App::new(width, height);
+            app.navigate(&url);
+            let gen = app.tab().gen;
+            let view = cb_tui::PageView::ready(
+                &url,
+                &outcome.final_url,
+                &outcome.title,
+                doc,
+                width,
+                outcome.cached,
+                outcome.tokens_estimate,
+                outcome.raw.clone(),
+                outcome.markdown.clone(),
+            );
+            app.on_loaded(0, gen, view);
+            print!("{}", cb_tui::dump_screen(&app, width, height));
             Ok(0)
         }
         Cmd::Plain { url, replay } => {

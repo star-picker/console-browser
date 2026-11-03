@@ -45,7 +45,7 @@ impl PageView {
         markdown: impl Into<String>,
     ) -> PageView {
         let title = title.into();
-        let layout = Layout::new(&doc, width);
+        let layout = Layout::new(&doc, crate::views::content_width(width));
         PageView {
             url: url.into(),
             final_url: final_url.into(),
@@ -69,7 +69,7 @@ impl PageView {
         message: &str,
     ) -> PageView {
         let doc = notice_doc(title, level, message);
-        let layout = Layout::new(&doc, width);
+        let layout = Layout::new(&doc, crate::views::content_width(width));
         PageView {
             url: url.to_string(),
             final_url: url.to_string(),
@@ -123,7 +123,7 @@ impl PageView {
                 });
                 blocks.extend(doc.blocks);
                 doc.blocks = blocks;
-                let layout = Layout::new(&doc, width);
+                let layout = Layout::new(&doc, crate::views::content_width(width));
                 let resolved_title = if title.trim().is_empty() {
                     url.to_string()
                 } else {
@@ -155,7 +155,7 @@ impl PageView {
 
     pub fn relayout(&mut self, width: u16) {
         if let Some(doc) = &self.doc {
-            self.layout = Layout::new(doc, width);
+            self.layout = Layout::new(doc, crate::views::content_width(width));
         }
     }
 }

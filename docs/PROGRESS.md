@@ -1,3 +1,10 @@
+### 阅读排版（浏览器式）+ 离屏预览 `cb render`
+
+- 新增 `cb render <url> --width 120 --height 40 [--replay]`：同一套 bevy-free 渲染器离屏出一帧纯文本，等于「没有 GUI 时的截图」，我和用户都能直接看排版。
+- 浏览器式正文栏：`content_width = 终端宽 - 4，上限 92`，正文居中、左右留白；omnibox / 标签栏 / 状态栏保持全宽（chrome 与内容分层）。
+- 标题不再画 `#` 前缀，改为加粗 + 前后空行，层级靠间距区分；状态栏 `8 lines` 也跟随语言（中文 `行`）。
+- 实测（fixture 页，110 列）：正文居中缩进 9 栏、标题独立成行、段落之间有空行、代码块带 `[rust]` 标签。
+- 门禁：clippy `-D warnings` 0 告警，`cargo test --workspace` 173 passed。
 # console-browser · 开发进度台账
 
 > 只追加不改写。每条记录：时间 / 任务 / 做了什么 / 证据 / 裁决(Ruling)。

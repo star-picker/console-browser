@@ -143,7 +143,20 @@ fn draw_tabbar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(TLine::from(spans)), area);
 }
 
+/// 浏览器式正文宽度：两边留白、上限 92 列，窄终端不挤。
+pub fn content_width(total: u16) -> u16 {
+    total.saturating_sub(4).clamp(28, 92)
+}
+
 fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
+    let body_w = content_width(area.width);
+    let x = area.x + (area.width.saturating_sub(body_w)) / 2;
+    let area = Rect {
+        x,
+        y: area.y,
+        width: body_w,
+        height: area.height,
+    };
     let tab = app.tab();
     let Some(page) = &tab.page else {
         let hint = vec![
@@ -287,7 +300,11 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(ACCENT),
         ));
         left.push(TSpan::styled(
-            format!("· {}行", page.layout.total_lines()),
+            format!(
+                "· {} {}",
+                page.layout.total_lines(),
+                cb_core::i18n::t("ui.lines")
+            ),
             Style::default().fg(DIM),
         ));
         if page.tokens > 0 {
@@ -411,6 +428,28 @@ fn help_lines() -> Vec<TLine<'static>> {
         .collect()
 }
 
+/// 离屏渲染一帧为纯文本（无 ANSI）。开发自查与 `cb render` 预览用。
+pub fn dump_screen(app: &App, width: u16, height: u16) -> String {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    let backend = TestBackend::new(width.max(20), height.max(6));
+    let mut terminal = match Terminal::new(backend) {
+        Ok(t) => t,
+        Err(_) => return String::new(),
+    };
+    if terminal.draw(|frame| draw(frame, app)).is_err() {
+        return String::new();
+    }
+    let buffer = terminal.backend().buffer().clone();
+    let mut out = String::new();
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            out.push_str(buffer[(x, y)].symbol());
+        }
+        out.push('\n');
+    }
+    out
+}
 #[cfg(test)]
 mod tests {
     use super::*;
