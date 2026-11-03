@@ -81,6 +81,33 @@ pub struct Response {
     pub final_url: String,
 }
 
+/// 增量响应体：每次 next_chunk 拿到一段（SSE 按数据行回放）。
+pub type ByteStream =
+    std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Vec<u8>, NetError>> + Send>>;
+
+pub struct StreamResponse {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub final_url: String,
+    body: ByteStream,
+}
+
+impl StreamResponse {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        let name = name.to_ascii_lowercase();
+        self.headers
+            .iter()
+            .find(|(k, _)| k.to_ascii_lowercase() == name)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// 下一段；None = 流结束。
+    pub async fn next_chunk(&mut self) -> Option<Result<Vec<u8>, NetError>> {
+        use futures_util::StreamExt;
+        self.body.next().await
+    }
+}
+
 impl Response {
     pub fn header(&self, name: &str) -> Option<&str> {
         let name = name.to_ascii_lowercase();
@@ -431,27 +458,106 @@ impl NetClient {
         }
     }
 
+    /// 取回放条目（同一 URL 多条按顺序消费；用完后重复最后一条）。
+    fn replay_entry(&self, url: &str) -> Result<CassetteEntry, NetError> {
+        let Backend::Replay(cassette) = &self.backend else {
+            return Err(NetError::Cassette("client is not replaying".to_string()));
+        };
+        let index = self.replay_cursor.next(url);
+        let matches: Vec<&CassetteEntry> = cassette
+            .entries
+            .iter()
+            .filter(|entry| entry.url == url)
+            .collect();
+        if matches.is_empty() {
+            return Err(NetError::NotRecorded(url.to_string()));
+        }
+        let entry = matches[index.min(matches.len() - 1)];
+        if let Some(kind) = &entry.error {
+            return Err(match kind.as_str() {
+                "timeout" => NetError::Timeout(format!("replayed timeout for {url}")),
+                "dns" => NetError::Dns(format!("DNS lookup failed for {url}")),
+                other => NetError::Network(format!("replayed {other} for {url}")),
+            });
+        }
+        Ok(entry.clone())
+    }
+
+    /// 增量读响应体：AI 流式输出用。回放时按行切块，模拟真实分块。
+    pub async fn stream(&self, req: &Request) -> Result<StreamResponse, NetError> {
+        match &self.backend {
+            Backend::Replay(_) => {
+                let entry = self.replay_entry(&req.url)?;
+                let chunks: Vec<Result<Vec<u8>, NetError>> = entry
+                    .body
+                    .split_inclusive('\n')
+                    .map(|line| Ok(line.as_bytes().to_vec()))
+                    .collect();
+                Ok(StreamResponse {
+                    status: entry.status,
+                    headers: entry
+                        .headers
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                    final_url: entry.final_url.clone(),
+                    body: Box::pin(futures_util::stream::iter(chunks)),
+                })
+            }
+            Backend::Live { client, .. } => {
+                let mut builder = match req.method.to_ascii_uppercase().as_str() {
+                    "GET" => client.get(&req.url),
+                    "HEAD" => client.head(&req.url),
+                    "POST" => client.post(&req.url),
+                    other => return Err(NetError::Network(format!("unsupported method {other}"))),
+                };
+                if let Some(body) = &req.body {
+                    builder = builder.body(body.clone());
+                }
+                for (k, v) in &req.headers {
+                    builder = builder.header(k.as_str(), v.as_str());
+                }
+                let explicit_cookie = req
+                    .headers
+                    .iter()
+                    .any(|(k, _)| k.eq_ignore_ascii_case("cookie"));
+                if !explicit_cookie {
+                    if let Some(header) = self.cookie_header_for(&req.url) {
+                        builder = builder.header("cookie", header);
+                    }
+                }
+                let resp = builder.send().await?;
+                let status = resp.status().as_u16();
+                let final_url = resp.url().as_str().to_string();
+                let headers: Vec<(String, String)> = resp
+                    .headers()
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            k.as_str().to_string(),
+                            v.to_str().unwrap_or_default().to_string(),
+                        )
+                    })
+                    .collect();
+                self.store_response_cookies(&req.url, &headers);
+                use futures_util::StreamExt;
+                let body = resp
+                    .bytes_stream()
+                    .map(|item| item.map(|bytes| bytes.to_vec()).map_err(NetError::from));
+                Ok(StreamResponse {
+                    status,
+                    headers,
+                    final_url,
+                    body: Box::pin(body),
+                })
+            }
+        }
+    }
+
     pub async fn get(&self, req: &Request) -> Result<Response, NetError> {
         match &self.backend {
-            Backend::Replay(cassette) => {
-                let index = self.replay_cursor.next(&req.url);
-                let matches: Vec<&CassetteEntry> = cassette
-                    .entries
-                    .iter()
-                    .filter(|e| e.url == req.url)
-                    .collect();
-                if matches.is_empty() {
-                    return Err(NetError::NotRecorded(req.url.clone()));
-                }
-                // 条目用完后重复最后一条：同一响应回放 N 次（bench 会用到）。
-                let entry = matches[index.min(matches.len() - 1)];
-                if let Some(kind) = &entry.error {
-                    return Err(match kind.as_str() {
-                        "timeout" => NetError::Timeout(format!("replayed timeout for {}", req.url)),
-                        "dns" => NetError::Dns(format!("DNS lookup failed for {}", req.url)),
-                        other => NetError::Network(format!("replayed {other} for {}", req.url)),
-                    });
-                }
+            Backend::Replay(_) => {
+                let entry = self.replay_entry(&req.url)?;
                 Ok(Response {
                     status: entry.status,
                     headers: entry

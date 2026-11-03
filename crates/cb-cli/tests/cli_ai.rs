@@ -63,3 +63,55 @@ fn usage_starts_empty_and_counts_today() {
     assert_eq!(v["data"]["today_tokens"], 0);
     assert_eq!(v["data"]["days"].as_array().expect("days").len(), 0);
 }
+#[test]
+fn stream_prints_deltas_as_they_arrive() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("ai_stream.cassette.json")
+        .to_string_lossy()
+        .to_string();
+    let out = Command::cargo_bin("cb")
+        .expect("bin cb")
+        .arg("--db")
+        .arg(dir.path().join("cb.db"))
+        .env("CB_AI_PROVIDER", "openai")
+        .env("CB_AI_BASE_URL", "https://ai.test/v1")
+        .env("CB_AI_MODEL", "test-model")
+        .env("OPENAI_API_KEY", "sk-test-not-real")
+        .env("CB_AI_REPLAY", &cassette)
+        .args(["ai", "ask", "ping", "--stream"])
+        .output()
+        .expect("run cb");
+    assert!(
+        out.status.success(),
+        "stream failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("pong"), "streamed text missing: {stdout}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("streamed"), "usage line missing: {stderr}");
+}
+
+#[test]
+fn stream_and_json_are_mutually_exclusive() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("ai_stream.cassette.json")
+        .to_string_lossy()
+        .to_string();
+    let mut cmd = cb(&dir);
+    cmd.env("CB_AI_PROVIDER", "openai")
+        .env("CB_AI_BASE_URL", "https://ai.test/v1")
+        .env("OPENAI_API_KEY", "sk-test-not-real")
+        .env("CB_AI_REPLAY", &cassette)
+        .args(["ai", "ask", "ping", "--stream"]);
+    let (code, v) = run(&mut cmd);
+    assert_eq!(code, 2, "{v}");
+    assert_eq!(v["error"]["code"], "usage", "{v}");
+}

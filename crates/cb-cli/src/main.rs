@@ -1029,7 +1029,40 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 }
                 Ok(0)
             }
-            commands::ai::AiCmd::Ask { prompt, max_tokens } => {
+            commands::ai::AiCmd::Ask {
+                prompt,
+                max_tokens,
+                stream,
+            } => {
+                if *stream {
+                    if cli.json {
+                        return Err(CbError::usage(
+                            "--stream and --json are mutually exclusive: streamed output is not a JSON envelope",
+                        ));
+                    }
+                    use std::io::Write as _;
+                    let mut stdout = std::io::stdout();
+                    let completion = cb_core::ai::complete_stream(
+                        ctx,
+                        "ask",
+                        prompt,
+                        *max_tokens,
+                        &mut |delta: &str| {
+                            let _ = stdout.write_all(delta.as_bytes());
+                            let _ = stdout.flush();
+                        },
+                    )
+                    .await?;
+                    println!();
+                    eprintln!(
+                        "-- {} tokens in / {} out · {} ms · {} (streamed)",
+                        completion.prompt_tokens,
+                        completion.completion_tokens,
+                        completion.latency_ms,
+                        completion.model
+                    );
+                    return Ok(0);
+                }
                 let completion = cb_core::ai::complete(ctx, "ask", prompt, *max_tokens).await?;
                 if cli.json {
                     let envelope = Envelope::ok(

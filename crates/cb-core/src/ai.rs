@@ -180,6 +180,287 @@ pub fn parse_chat_response(body: &str) -> Result<ChatReply, CbError> {
     })
 }
 
+/// SSE 流累加器：增量喂 chunk，吐出 delta 文本。
+///
+/// 兼容两种模型响应：OpenAI 兼容的 data: {...} 流，以及非流式的整段 JSON
+///（有些代理忽略 stream=true，直接回完整响应）。
+#[derive(Debug, Default)]
+pub struct StreamAccumulator {
+    buffer: String,
+    raw: String,
+    /// Some(true) = SSE；Some(false) = 整段 JSON；None = 还没看出来。
+    sse: Option<bool>,
+    pub text: String,
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    pub model: String,
+    pub done: bool,
+}
+
+impl StreamAccumulator {
+    pub fn feed(&mut self, chunk: &str) -> Result<Vec<String>, CbError> {
+        self.raw.push_str(chunk);
+        self.buffer.push_str(chunk);
+        let mut deltas = Vec::new();
+        while let Some(pos) = self.buffer.find('\n') {
+            let line = self.buffer[..pos].trim_end_matches('\r').to_string();
+            self.buffer.drain(..=pos);
+            self.handle_line(&line, &mut deltas)?;
+        }
+        Ok(deltas)
+    }
+
+    fn handle_line(&mut self, line: &str, deltas: &mut Vec<String>) -> Result<(), CbError> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with(':') {
+            return Ok(());
+        }
+        if !trimmed.starts_with("data:") {
+            if self.sse.is_none() {
+                self.sse = Some(false);
+            }
+            return Ok(());
+        }
+        self.sse = Some(true);
+        let payload = trimmed["data:".len()..].trim();
+        if payload == "[DONE]" {
+            self.done = true;
+            return Ok(());
+        }
+        if payload.is_empty() {
+            return Ok(());
+        }
+        self.consume_payload(payload, deltas)
+    }
+
+    fn consume_payload(&mut self, payload: &str, deltas: &mut Vec<String>) -> Result<(), CbError> {
+        let value: serde_json::Value = serde_json::from_str(payload)
+            .map_err(|e| CbError::other(format!("model stream returned invalid json: {e}")))?;
+        if let Some(err) = value.get("error") {
+            return Err(CbError::other(format!("model error: {err}")));
+        }
+        if let Some(usage) = value.get("usage") {
+            if let Some(n) = usage["prompt_tokens"].as_i64() {
+                self.prompt_tokens = n;
+            }
+            if let Some(n) = usage["completion_tokens"].as_i64() {
+                self.completion_tokens = n;
+            }
+        }
+        if let Some(model) = value["model"].as_str() {
+            if !model.is_empty() {
+                self.model = model.to_string();
+            }
+        }
+        let choice = &value["choices"][0];
+        let delta = choice["delta"]["content"]
+            .as_str()
+            .or_else(|| choice["message"]["content"].as_str())
+            .or_else(|| choice["text"].as_str());
+        if let Some(delta) = delta {
+            if !delta.is_empty() {
+                self.text.push_str(delta);
+                deltas.push(delta.to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// 收尾：处理最后一行没换行的数据；非 SSE 时把整段 JSON 当普通响应解析。
+    pub fn finish(&mut self) -> Result<Vec<String>, CbError> {
+        if !self.buffer.is_empty() {
+            let line = std::mem::take(&mut self.buffer);
+            let mut deltas = Vec::new();
+            if line.trim_start().starts_with("data:") {
+                self.handle_line(&line, &mut deltas)?;
+            }
+            if !deltas.is_empty() {
+                return Ok(deltas);
+            }
+        }
+        if self.sse != Some(true) {
+            let reply = parse_chat_response(&self.raw)?;
+            self.prompt_tokens = reply.prompt_tokens;
+            self.completion_tokens = reply.completion_tokens;
+            if !reply.model.is_empty() {
+                self.model = reply.model;
+            }
+            if self.text.is_empty() {
+                self.text = reply.text.clone();
+                return Ok(vec![reply.text]);
+            }
+        }
+        Ok(Vec::new())
+    }
+}
+
+/// 流式跑一次模型调用：边流边回调，成功失败都出账。
+pub async fn complete_stream<F>(
+    ctx: &Ctx,
+    purpose: &str,
+    prompt: &str,
+    max_tokens: u64,
+    on_chunk: &mut F,
+) -> Result<Completion, CbError>
+where
+    F: FnMut(&str),
+{
+    let config = AiConfig::from_env();
+    complete_stream_with(ctx, &config, purpose, prompt, max_tokens, on_chunk).await
+}
+
+pub async fn complete_stream_with<F>(
+    ctx: &Ctx,
+    config: &AiConfig,
+    purpose: &str,
+    prompt: &str,
+    max_tokens: u64,
+    on_chunk: &mut F,
+) -> Result<Completion, CbError>
+where
+    F: FnMut(&str),
+{
+    config.ensure_ready()?;
+    let day = today();
+    if let Some(budget) = config.daily_budget {
+        let used = ctx
+            .store
+            .ai_tokens_used(day)
+            .map_err(crate::error::store_err)?;
+        if used >= budget {
+            return Err(CbError::budget(format!(
+                "daily token budget exhausted: {used}/{budget}"
+            )));
+        }
+    }
+
+    let started = std::time::Instant::now();
+    let body = serde_json::json!({
+        "model": config.model,
+        "max_tokens": max_tokens,
+        "stream": true,
+        "messages": [{ "role": "user", "content": prompt }],
+    })
+    .to_string();
+    let mut request = cb_net::Request::post(config.chat_url(), body);
+    if let Some(key) = &config.api_key {
+        request = request.header("authorization", &format!("Bearer {key}"));
+    }
+    let client = match &config.replay {
+        Some(path) => cb_net::NetClient::replay(path)?,
+        None => cb_net::NetClient::new(ctx.profile)?,
+    };
+
+    let streamed = tokio::time::timeout(
+        std::time::Duration::from_millis(config.timeout_ms),
+        stream_answer(&client, &request, on_chunk),
+    )
+    .await;
+    let latency_ms = started.elapsed().as_millis() as i64;
+
+    let result = match streamed {
+        Err(_) => Err(CbError::timeout(format!(
+            "model stream did not finish within {}ms",
+            config.timeout_ms
+        ))),
+        Ok(result) => result,
+    };
+
+    match result {
+        Ok(mut acc) => {
+            let prompt_tokens = if acc.prompt_tokens > 0 {
+                acc.prompt_tokens
+            } else {
+                cb_extract::estimate_tokens(prompt) as i64
+            };
+            let completion_tokens = if acc.completion_tokens > 0 {
+                acc.completion_tokens
+            } else {
+                cb_extract::estimate_tokens(&acc.text) as i64
+            };
+            if acc.model.is_empty() {
+                acc.model = config.model.clone();
+            }
+            let _ = ctx.store.record_llm_call(&cb_store::LlmCall {
+                ts: crate::now_secs(),
+                day,
+                provider: config.provider.as_str().to_string(),
+                model: acc.model.clone(),
+                purpose: purpose.to_string(),
+                prompt_tokens,
+                completion_tokens,
+                latency_ms,
+                ok: true,
+                error: None,
+            });
+            Ok(Completion {
+                text: acc.text,
+                prompt_tokens,
+                completion_tokens,
+                model: acc.model,
+                provider: config.provider.as_str().to_string(),
+                latency_ms,
+            })
+        }
+        Err(err) => {
+            let _ = ctx.store.record_llm_call(&cb_store::LlmCall {
+                ts: crate::now_secs(),
+                day,
+                provider: config.provider.as_str().to_string(),
+                model: config.model.clone(),
+                purpose: purpose.to_string(),
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                latency_ms,
+                ok: false,
+                error: Some(err.body.message.clone()),
+            });
+            Err(err)
+        }
+    }
+}
+
+async fn stream_answer<F>(
+    client: &cb_net::NetClient,
+    request: &cb_net::Request,
+    on_chunk: &mut F,
+) -> Result<StreamAccumulator, CbError>
+where
+    F: FnMut(&str),
+{
+    let mut response = client.stream(request).await.map_err(CbError::from)?;
+    if response.status >= 400 {
+        let mut text = String::new();
+        while let Some(chunk) = response.next_chunk().await {
+            let chunk = chunk.map_err(CbError::from)?;
+            text.push_str(&String::from_utf8_lossy(&chunk));
+            if text.len() > 4_000 {
+                break;
+            }
+        }
+        return Err(CbError::network(format!(
+            "model http {}: {}",
+            response.status,
+            text.chars().take(300).collect::<String>()
+        )));
+    }
+    let mut acc = StreamAccumulator::default();
+    while let Some(chunk) = response.next_chunk().await {
+        let chunk = chunk.map_err(CbError::from)?;
+        let text = String::from_utf8_lossy(&chunk);
+        for delta in acc.feed(&text)? {
+            on_chunk(&delta);
+        }
+        if acc.done {
+            break;
+        }
+    }
+    for delta in acc.finish()? {
+        on_chunk(&delta);
+    }
+    Ok(acc)
+}
+
 pub fn today() -> i64 {
     crate::now_secs() / 86_400
 }
@@ -345,6 +626,57 @@ mod tests {
     }
 
     #[test]
+    fn stream_accumulator_handles_split_events_and_usage() {
+        let mut acc = StreamAccumulator::default();
+        let mut deltas = Vec::new();
+        deltas.extend(
+            acc.feed("data: {\"model\":\"m\",\"choices\":[{\"delta\":{\"content\":\"po\"}}]}\n")
+                .expect("feed"),
+        );
+        // 第二个事件被网络切成两半：第一半留着，第二半到齐才解析。
+        deltas.extend(
+            acc.feed("data: {\"choices\":[{\"delta\":{\"content\":\"n")
+                .expect("feed"),
+        );
+        assert_eq!(deltas, vec!["po".to_string()], "half event must not emit");
+        deltas.extend(acc.feed("g\"}}]}\n").expect("feed"));
+        deltas.extend(
+            acc.feed("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":2}}\n")
+                .expect("feed"),
+        );
+        deltas.extend(acc.feed("data: [DONE]\n").expect("feed"));
+        deltas.extend(acc.finish().expect("finish"));
+        assert_eq!(deltas, vec!["po".to_string(), "ng".to_string()]);
+        assert_eq!(acc.text, "pong");
+        assert_eq!(acc.prompt_tokens, 7);
+        assert_eq!(acc.completion_tokens, 2);
+        assert_eq!(acc.model, "m");
+        assert!(acc.done);
+    }
+
+    #[test]
+    fn stream_accumulator_falls_back_to_plain_json() {
+        let body = r#"{"model":"m","choices":[{"message":{"content":"plain"}}],"usage":{"prompt_tokens":3,"completion_tokens":1}}"#;
+        let mut acc = StreamAccumulator::default();
+        let deltas = acc.feed(body).expect("feed");
+        assert!(deltas.is_empty(), "plain JSON has no incremental deltas");
+        let tail = acc.finish().expect("finish");
+        assert_eq!(tail, vec!["plain".to_string()]);
+        assert_eq!(acc.text, "plain");
+        assert_eq!(acc.prompt_tokens, 3);
+        assert_eq!(acc.completion_tokens, 1);
+    }
+
+    #[test]
+    fn stream_accumulator_surfaces_model_errors() {
+        let mut acc = StreamAccumulator::default();
+        let err = acc
+            .feed("data: {\"error\":{\"message\":\"insufficient balance\"}}\n")
+            .expect_err("must fail");
+        assert!(err.body.message.contains("insufficient balance"));
+    }
+
+    #[test]
     fn surfaces_model_errors() {
         let body = r#"{"error":{"message":"insufficient balance"}}"#;
         let err = parse_chat_response(body).expect_err("must fail");
@@ -440,6 +772,56 @@ mod wire_tests {
         let usage = ctx.store.llm_usage(7).expect("usage");
         assert_eq!(usage.len(), 1);
         assert_eq!(usage[0].1, 7);
+    }
+
+    #[tokio::test]
+    async fn streaming_call_streams_deltas_and_records_usage() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = cb_store::Store::open_in_memory().expect("store");
+        let ctx = crate::Ctx::new(store, Profile::Chrome);
+        let cfg = config(sse_cassette(&dir), None);
+
+        let mut chunks: Vec<String> = Vec::new();
+        let completion = complete_stream_with(&ctx, &cfg, "ask", "ping", 16, &mut |delta: &str| {
+            chunks.push(delta.to_string());
+        })
+        .await
+        .expect("stream");
+        assert_eq!(completion.text, "pong");
+        assert_eq!(completion.prompt_tokens, 7);
+        assert_eq!(completion.completion_tokens, 2);
+        assert!(chunks.len() >= 2, "must stream incrementally: {chunks:?}");
+        assert_eq!(chunks.concat(), "pong");
+        let used = ctx.store.ai_tokens_used(today()).expect("used");
+        assert_eq!(used, 9, "streaming calls must be recorded too");
+    }
+
+    fn sse_cassette(dir: &tempfile::TempDir) -> std::path::PathBuf {
+        let path = dir.path().join("ai_stream.cassette.json");
+        let body = [
+            "data: {\"model\":\"test-model\",\"choices\":[{\"delta\":{\"content\":\"po\"}}]}",
+            "",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"ng\"}}]}",
+            "",
+            "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":2}}",
+            "",
+            "data: [DONE]",
+            "",
+        ]
+        .join("\n");
+        let payload = serde_json::json!({
+            "version": 1,
+            "entries": [{
+                "url": "https://ai.test/v1/chat/completions",
+                "final_url": "https://ai.test/v1/chat/completions",
+                "status": 200,
+                "headers": {"content-type": "text/event-stream"},
+                "body": body,
+            }]
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&payload).expect("json"))
+            .expect("write");
+        path
     }
 
     #[tokio::test]

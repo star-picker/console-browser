@@ -23,7 +23,7 @@ use cb_net::Profile;
 use cb_store::Store;
 
 pub use agent::{run as run_agent, AgentOpts, AgentRun};
-pub use ai::{complete, AiConfig, Completion, Provider};
+pub use ai::{complete, complete_stream, AiConfig, Completion, Provider};
 pub use envelope::{CacheMeta, Envelope, ExtractMeta, Meta, ENGINE};
 pub use error::CbError;
 pub use fetch::{fetch_page, FetchAttempt, FetchOpts, FetchOutcome, Format};

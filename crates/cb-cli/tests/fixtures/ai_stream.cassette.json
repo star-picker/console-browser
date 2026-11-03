@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://ai.test/v1/chat/completions",
+      "final_url": "https://ai.test/v1/chat/completions",
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream"
+      },
+      "body": "data: {\"model\":\"test-model\",\"choices\":[{\"delta\":{\"content\":\"po\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"ng\"}}]}\n\ndata: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":2}}\n\ndata: [DONE]\n"
+    }
+  ]
+}

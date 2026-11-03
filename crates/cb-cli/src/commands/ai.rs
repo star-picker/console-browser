@@ -22,7 +22,7 @@ pub enum AiCmd {
 
     /// 一次性提问 · One-shot ask
     #[command(
-        after_help = "EXAMPLES / 例子:\n  cb ai ask \"一句话解释 HTTP/2 多路复用\"\n  cb ai ask \"...\" --max-tokens 200 --json"
+        after_help = "EXAMPLES / 例子:\n  cb ai ask \"一句话解释 HTTP/2 多路复用\"\n  cb ai ask \"...\" --max-tokens 200 --json\n  cb ai ask \"...\" --stream"
     )]
     Ask {
         /// 提示词 · Prompt
@@ -31,5 +31,9 @@ pub enum AiCmd {
         /// 回复长度上限 · Max completion tokens
         #[arg(long, default_value_t = 800)]
         max_tokens: u64,
+
+        /// 边生成边打印（不能和 --json 同用）· Stream tokens as they arrive
+        #[arg(long)]
+        stream: bool,
     },
 }
