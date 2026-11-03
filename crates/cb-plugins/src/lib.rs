@@ -126,17 +126,10 @@ pub fn discover(dir: &Path) -> (Vec<Plugin>, Vec<String>) {
             continue;
         }
         let manifest_path = path.join("plugin.json");
-        let raw = match std::fs::read_to_string(&manifest_path) {
-            Ok(raw) => raw,
-            Err(e) => {
-                errors.push(format!("{}: {e}", manifest_path.display()));
-                continue;
-            }
-        };
-        let manifest: Manifest = match serde_json::from_str(&raw) {
+        let manifest = match read_manifest(&manifest_path) {
             Ok(m) => m,
             Err(e) => {
-                errors.push(format!("{}: bad manifest: {e}", manifest_path.display()));
+                errors.push(format!("{}: {e}", manifest_path.display()));
                 continue;
             }
         };
@@ -198,5 +191,73 @@ mod tests {
         assert_eq!(plugins[0].name, "wechat");
         assert_eq!(plugins[0].permissions, vec!["extract".to_string()]);
         assert_eq!(errors.len(), 1);
+    }
+}
+fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_dir(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// 读 manifest：容忍 Windows 编辑器带的 UTF-8 BOM（否则 serde 在 column 1 就报错）。
+fn read_manifest(path: &Path) -> Result<Manifest, String> {
+    let raw = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let raw = raw.trim_start_matches('\u{feff}');
+    serde_json::from_str(raw).map_err(|e| format!("bad manifest: {e}"))
+}
+
+/// 安装插件：先校验 manifest，再整目录复制到插件目录（同名覆盖）。
+pub fn install(src: &Path, plugins_dir: &Path) -> Result<PathBuf, String> {
+    let manifest = read_manifest(&src.join("plugin.json"))?;
+    validate(&manifest)?;
+    let dest = plugins_dir.join(manifest.name.trim());
+    std::fs::create_dir_all(plugins_dir).map_err(|e| format!("create plugins dir: {e}"))?;
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest).map_err(|e| format!("replace {}: {e}", dest.display()))?;
+    }
+    copy_dir(src, &dest).map_err(|e| format!("copy plugin: {e}"))?;
+    Ok(dest)
+}
+
+#[cfg(test)]
+mod install_tests {
+    use super::*;
+
+    #[test]
+    fn installs_valid_plugin_and_rejects_bad_manifest() {
+        let work = tempfile::tempdir().expect("tmp");
+        let src = work.path().join("src");
+        std::fs::create_dir_all(&src).expect("mkdir");
+        std::fs::write(
+            src.join("plugin.json"),
+            r##"{"name":"demo","version":"1.0.0","permissions":["extract"],"hooks":{}}"##,
+        )
+        .expect("write");
+        std::fs::write(src.join("extract.js"), "// x").expect("write");
+        let plugins = work.path().join("plugins");
+        let dest = install(&src, &plugins).expect("install");
+        assert!(dest.join("plugin.json").exists());
+        assert!(dest.join("extract.js").exists(), "files copied");
+        let (found, errors) = discover(&plugins);
+        assert_eq!(found.len(), 1);
+        assert!(errors.is_empty());
+        assert_eq!(found[0].name, "demo");
+
+        let bad = work.path().join("bad");
+        std::fs::create_dir_all(&bad).expect("mkdir");
+        std::fs::write(bad.join("plugin.json"), "{\"name\":\"x\"}").expect("write");
+        assert!(
+            install(&bad, &plugins).is_err(),
+            "missing version must be rejected"
+        );
     }
 }

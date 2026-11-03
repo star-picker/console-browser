@@ -1,3 +1,10 @@
+### 插件安装：cb plugin add + BOM 容错
+
+- `cb-plugins::install(src, plugins_dir)`：先校验 manifest（名字安全、版本必填、权限白名单），再整目录复制到插件目录（同名覆盖）。
+- `read_manifest()`：**容忍 UTF-8 BOM** —— Windows 编辑器/`Set-Content -Encoding utf8` 写出的 plugin.json 带 BOM，serde 会在 column 1 报错；现在先剥 BOM 再解析（discover 与 install 共用）。
+- CLI：`cb plugin add <dir> [--dir 插件目录]`，输出安装路径（JSON 带 `installed`）。
+- 实测：带 BOM 的 manifest → `installed …\plugins\demo`，`plugin list` 显示 `demo 1.0.0 [extract]`。
+- 测试：安装有效插件（文件复制 + discover 命中）、缺 version 的 manifest 被拒绝。
 ### 性能守门：cb bench
 
 - `cb bench <url> [--n 3] [--replay]`：同一 URL 跑 N 次（强制 fresh），输出 min/avg/max 毫秒、响应字节、token 估算；`--json` 同名结构化字段。

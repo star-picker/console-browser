@@ -1420,6 +1420,25 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             Ok(0)
         }
         Cmd::Plugin(args) => match &args.cmd {
+            commands::plugin::PluginCmd::Add { path, dir } => {
+                let plugins_dir = dir.clone().unwrap_or_else(cb_plugins::default_plugin_dir);
+                let dest = cb_plugins::install(path, &plugins_dir)
+                    .map_err(|e| CbError::usage(format!("plugin add failed: {e}")))?;
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "installed": dest.display().to_string() }),
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    println!("installed {}", dest.display());
+                }
+                Ok(0)
+            }
             commands::plugin::PluginCmd::Dir => {
                 println!("{}", cb_plugins::default_plugin_dir().display());
                 Ok(0)

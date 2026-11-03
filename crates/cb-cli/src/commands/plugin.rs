@@ -23,6 +23,14 @@ pub enum PluginCmd {
         #[arg(long, value_name = "DIR")]
         dir: Option<PathBuf>,
     },
+    /// 安装插件（整目录复制，先校验 manifest）· Install a plugin directory
+    Add {
+        /// 插件目录（含 plugin.json）· Directory containing plugin.json
+        path: PathBuf,
+        #[arg(long, value_name = "DIR")]
+        dir: Option<PathBuf>,
+    },
+
     /// 打印插件目录 · Print the plugin directory
     Dir,
 }
