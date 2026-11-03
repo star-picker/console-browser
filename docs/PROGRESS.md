@@ -1,3 +1,8 @@
+### 设计文档：bookmarks（收藏）落地
+
+- 存储层：`add_bookmark`（同 URL 覆盖标题、幂等）、`list_bookmarks`（按时间倒序）、`remove_bookmark`（返回是否删掉）。
+- CLI：`cb bookmark add <url> [--title]` / `cb bookmark list` / `cb bookmark rm <url>`；人读用 `human_age` 显示相对时间，JSON 带 `url/title/ts`。
+- 测试：`cli_bookmark.rs` 一条往返（add → list → 幂等覆盖 → rm → 空列表）。
 ### 设计文档 M3 第一步：cb-js（QuickJS 运行时 + DOM/BOM 桩）
 
 - 新 crate `cb-js`：rquickjs（QuickJS）运行时，`eval` 返回字符串或 JSON。

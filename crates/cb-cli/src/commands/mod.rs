@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod ai;
+pub mod bookmark;
 pub mod challenge;
 pub mod cookies;
 pub mod db;

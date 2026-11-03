@@ -111,6 +111,9 @@ enum Cmd {
     /// 人工接力登录 · Human-in-the-loop login (browser window or paste cookies)
     Login(commands::login::LoginArgs),
 
+    /// 收藏 · Bookmarks
+    Bookmark(commands::bookmark::BookmarkArgs),
+
     /// 在最小 JS 运行时里跑脚本（DOM/BOM 桩）· Run JS with DOM/BOM stubs
     Js {
         /// 先抓这个 URL 建 document 桩 · Page whose title/text seeds the document stub
@@ -1057,6 +1060,78 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             }
             Ok(0)
         }
+        Cmd::Bookmark(args) => match &args.cmd {
+            commands::bookmark::BookmarkCmd::Add { url, title } => {
+                let title = title.clone().unwrap_or_else(|| url.clone());
+                ctx.store
+                    .add_bookmark(url, &title)
+                    .map_err(cb_core::error::store_err)?;
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "url": url, "title": title }),
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    println!("{} {}", cb_core::i18n::t("ui.bookmark_saved"), url);
+                }
+                Ok(0)
+            }
+            commands::bookmark::BookmarkCmd::List => {
+                let rows = ctx
+                    .store
+                    .list_bookmarks()
+                    .map_err(cb_core::error::store_err)?;
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({
+                            "bookmarks": rows
+                                .iter()
+                                .map(|(url, title, ts)| serde_json::json!({ "url": url, "title": title, "ts": ts }))
+                                .collect::<Vec<_>>()
+                        }),
+                    );
+                    output::print_json(&envelope);
+                } else if rows.is_empty() {
+                    println!("{}", cb_core::i18n::t("ui.bookmark_none"));
+                } else {
+                    let now = cb_core::now_secs();
+                    for (url, title, ts) in rows {
+                        println!("{:<8} {}\t{}", human_age(ts, now), title, url);
+                    }
+                }
+                Ok(0)
+            }
+            commands::bookmark::BookmarkCmd::Rm { url } => {
+                let removed = ctx
+                    .store
+                    .remove_bookmark(url)
+                    .map_err(cb_core::error::store_err)?;
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "url": url, "removed": removed }),
+                    );
+                    output::print_json(&envelope);
+                } else {
+                    println!("{removed}");
+                }
+                Ok(0)
+            }
+        },
         Cmd::Js { url, code, replay } => {
             let engine = cb_js::JsRuntime::new().map_err(|e| CbError::js(e.to_string()))?;
             if let Some(target) = url {

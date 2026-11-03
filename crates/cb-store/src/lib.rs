@@ -443,6 +443,34 @@ impl Store {
         Ok(conn.last_insert_rowid())
     }
 
+    /// 收藏：同一 URL 覆盖标题（幂等）。
+    pub fn add_bookmark(&self, url: &str, title: &str) -> Result<()> {
+        let conn = self.lock();
+        conn.execute(
+            r#"INSERT INTO bookmarks (url,title,ts) VALUES (?1,?2,?3)
+               ON CONFLICT(url) DO UPDATE SET title=excluded.title, ts=excluded.ts"#,
+            params![url, title, now_secs()],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_bookmarks(&self) -> Result<Vec<(String, String, i64)>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare("SELECT url,title,ts FROM bookmarks ORDER BY ts DESC")?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get(2)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn remove_bookmark(&self, url: &str) -> Result<bool> {
+        let conn = self.lock();
+        let n = conn.execute("DELETE FROM bookmarks WHERE url=?1", params![url])?;
+        Ok(n > 0)
+    }
+
     pub fn list_history(&self, q: Option<&str>, limit: usize) -> Result<Vec<HistoryRow>> {
         let conn = self.lock();
         let limit = limit as i64;
