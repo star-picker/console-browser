@@ -1,3 +1,10 @@
+### 设计文档：site_strategy（按域名学习指纹策略）
+
+- schema 升到 **v5**：新增 `site_strategy(domain, profile, ok_count, fail_count, last_ok_ts, last_fail_ts)`。
+- `fetch_page` 成功后记录 `(域名, 指纹, ok)`；`Store::record_site` 用 upsert 累加，成功的 profile 覆盖为最近可用值。
+- `Store::list_sites()` 返回 `SiteRow {domain, profile, ok_count, fail_count, last_ts}`（clippy 提醒后从五元组改成结构体，可读性更好）。
+- CLI：`cb site list`（JSON 直接给 `sites: [SiteRow]`；人读带相对时间）。
+- 测试：`store_crud` 一条（成功计数、上次成功指纹覆盖、失败计数分开）。
 ### 设计文档：日志文件（jsonl + 轮转 + 脱敏）
 
 - 新模块 `cb-core::logging`：日志目录（`%APPDATA%/console-browser/logs` 或 `$HOME/.local/state/...`）、按天 jsonl、超 2MB 轮转到 `.jsonl.1`。

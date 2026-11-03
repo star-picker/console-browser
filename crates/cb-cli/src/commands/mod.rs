@@ -11,4 +11,5 @@ pub mod login;
 pub mod mcp;
 pub mod plugin;
 pub mod search;
+pub mod site;
 pub mod tui;

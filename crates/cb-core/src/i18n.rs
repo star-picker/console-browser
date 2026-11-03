@@ -162,6 +162,7 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
     ("ui.plugin_none", "还没有安装插件", "no plugins installed"),
     ("ui.bookmark_saved", "已收藏", "bookmarked"),
     ("ui.bookmark_none", "还没有收藏", "no bookmarks"),
+    ("ui.site_none", "还没有站点记录（抓几次就学到了）", "no site records yet"),
     ("ui.status.cookie_imported", "已导入 cookie", "cookies imported"),
     ("ui.status.cookie_no_url", "没有可用的 URL，无法导入 cookie", "no url, cannot import cookies"),
     ("ui.status.command", "命令", "command"),

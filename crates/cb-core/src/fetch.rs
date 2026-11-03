@@ -405,6 +405,14 @@ fn build_outcome(
         ok: true,
     })?;
 
+    // 学一学这个域名在哪个指纹下能过（site strategy）。
+    if let Some(host) = url::Url::parse(final_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+    {
+        let _ = ctx.store.record_site(&host, ctx.profile.as_str(), true);
+    }
+
     let render_doc = cb_extract::to_document(&html, &extract_opts).ok();
     let login = crate::login::detect_login_wall(final_url, headers, &html, jar_has_session);
 

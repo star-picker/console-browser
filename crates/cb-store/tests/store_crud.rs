@@ -190,3 +190,29 @@ fn history_fts_matches_title_and_url() {
         .expect("fts")
         .is_empty());
 }
+#[test]
+fn site_strategy_counts_success_and_failure() {
+    let store = cb_store::Store::open_in_memory().expect("store");
+    store
+        .record_site("example.com", "chrome", true)
+        .expect("ok1");
+    store
+        .record_site("example.com", "firefox", true)
+        .expect("ok2");
+    store
+        .record_site("blocked.example", "chrome", false)
+        .expect("fail");
+    let sites = store.list_sites().expect("list");
+    let example = sites
+        .iter()
+        .find(|s| s.domain == "example.com")
+        .expect("example");
+    assert_eq!(example.profile, "firefox", "last successful profile wins");
+    assert_eq!(example.ok_count, 2, "ok count");
+    assert_eq!(example.fail_count, 0, "fail count");
+    let blocked = sites
+        .iter()
+        .find(|s| s.domain == "blocked.example")
+        .expect("blocked");
+    assert_eq!(blocked.fail_count, 1);
+}

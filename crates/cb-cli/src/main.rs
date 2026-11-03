@@ -111,6 +111,9 @@ enum Cmd {
     /// 人工接力登录 · Human-in-the-loop login (browser window or paste cookies)
     Login(commands::login::LoginArgs),
 
+    /// 学到的站点策略 · Learned per-site strategy
+    Site(commands::site::SiteArgs),
+
     /// 日志文件 · Log files (jsonl, rotated, redacted)
     Log(commands::log::LogArgs),
 
@@ -1088,6 +1091,37 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             }
             Ok(0)
         }
+        Cmd::Site(args) => match &args.cmd {
+            commands::site::SiteCmd::List => {
+                let rows = ctx.store.list_sites().map_err(cb_core::error::store_err)?;
+                if cli.json {
+                    let envelope = Envelope::ok(
+                        output::meta(
+                            started.elapsed().as_millis() as u64,
+                            false,
+                            ctx.profile.as_str(),
+                        ),
+                        serde_json::json!({ "sites": rows }),
+                    );
+                    output::print_json(&envelope);
+                } else if rows.is_empty() {
+                    println!("{}", cb_core::i18n::t("ui.site_none"));
+                } else {
+                    let now = cb_core::now_secs();
+                    for site in rows {
+                        println!(
+                            "{:<28} {:<8} ok={} fail={} {}",
+                            site.domain,
+                            site.profile,
+                            site.ok_count,
+                            site.fail_count,
+                            human_age(site.last_ts, now)
+                        );
+                    }
+                }
+                Ok(0)
+            }
+        },
         Cmd::Log(args) => match &args.cmd {
             commands::log::LogCmd::Dir => {
                 let dir = cb_core::logging::logs_dir();

@@ -12,7 +12,7 @@ pub mod secrets;
 pub use jar::StoreCookieJar;
 pub use secrets::{default_secret_box, PlainBox, SecretBox};
 
-pub const SCHEMA_VERSION: i32 = 4;
+pub const SCHEMA_VERSION: i32 = 5;
 
 /// 缓存保留 7 天，历史 90 天，日志 14 天。
 pub const CACHE_RETENTION_SECS: i64 = 7 * 86_400;
@@ -142,7 +142,25 @@ CREATE TRIGGER IF NOT EXISTS history_au AFTER UPDATE ON history BEGIN
   INSERT INTO history_fts(history_fts,rowid,title,url) VALUES('delete',old.id,old.title,old.url);
   INSERT INTO history_fts(rowid,title,url) VALUES (new.id,new.title,new.url);
 END;
+
+CREATE TABLE IF NOT EXISTS site_strategy(
+  domain TEXT PRIMARY KEY,
+  profile TEXT NOT NULL,
+  ok_count INTEGER NOT NULL DEFAULT 0,
+  fail_count INTEGER NOT NULL DEFAULT 0,
+  last_ok_ts INTEGER,
+  last_fail_ts INTEGER
+);
 "#;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SiteRow {
+    pub domain: String,
+    pub profile: String,
+    pub ok_count: i64,
+    pub fail_count: i64,
+    pub last_ts: i64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageRow {
@@ -486,6 +504,45 @@ impl Store {
         Ok(n > 0)
     }
 
+    /// 记录某域名用哪个指纹成功/失败（site strategy 学习）。
+    pub fn record_site(&self, domain: &str, profile: &str, ok: bool) -> Result<()> {
+        let conn = self.lock();
+        let now = now_secs();
+        if ok {
+            conn.execute(
+                "INSERT INTO site_strategy(domain,profile,ok_count,last_ok_ts) VALUES(?1,?2,1,?3)
+                 ON CONFLICT(domain) DO UPDATE SET profile=excluded.profile, ok_count=ok_count+1, last_ok_ts=excluded.last_ok_ts",
+                params![domain, profile, now],
+            )?;
+        } else {
+            conn.execute(
+                "INSERT INTO site_strategy(domain,profile,fail_count,last_fail_ts) VALUES(?1,?2,1,?3)
+                 ON CONFLICT(domain) DO UPDATE SET fail_count=fail_count+1, last_fail_ts=excluded.last_fail_ts",
+                params![domain, profile, now],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// 列出学到的站点策略（成功多的在前）。
+    pub fn list_sites(&self) -> Result<Vec<SiteRow>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT domain,profile,ok_count,fail_count,COALESCE(last_ok_ts,last_fail_ts,0) FROM site_strategy ORDER BY ok_count DESC, domain ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(SiteRow {
+                    domain: r.get(0)?,
+                    profile: r.get(1)?,
+                    ok_count: r.get(2)?,
+                    fail_count: r.get(3)?,
+                    last_ts: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
     pub fn search_history_fts(&self, q: &str, limit: usize) -> Result<Vec<HistoryRow>> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
