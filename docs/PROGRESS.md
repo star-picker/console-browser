@@ -1,3 +1,8 @@
+### 性能守门：cb bench
+
+- `cb bench <url> [--n 3] [--replay]`：同一 URL 跑 N 次（强制 fresh），输出 min/avg/max 毫秒、响应字节、token 估算；`--json` 同名结构化字段。
+- 用途：改抽取/网络层后跑一遍，确认没把性能拖垮（M6 性能守门的第一块）。
+- 实测（140 字节 fixture，replay）：`runs 3 min 0ms avg 1ms max 3ms / bytes 335 tokens 54`。
 ### cb-js 安全阀：脚本超时中断
 
 - `JsRuntime` 增加 `eval_with_timeout`：QuickJS 中断处理器 + 超时线程，脚本死循环时中断而不是把进程拖死；带 generation 防止上一轮超时线程误伤新调用。

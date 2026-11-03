@@ -117,6 +117,18 @@ enum Cmd {
     /// 学到的站点策略 · Learned per-site strategy
     Site(commands::site::SiteArgs),
 
+    /// 抓取性能守门（同一 URL 跑 N 次）· Fetch benchmark
+    Bench {
+        /// 目标 URL · Target URL
+        url: String,
+        /// 次数 · Iterations
+        #[arg(long, default_value_t = 3)]
+        n: u32,
+        /// 从 cassette 回放 · Replay a cassette
+        #[arg(long, value_name = "FILE")]
+        replay: Option<PathBuf>,
+    },
+
     /// 日志文件 · Log files (jsonl, rotated, redacted)
     Log(commands::log::LogArgs),
 
@@ -1166,6 +1178,57 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 Ok(0)
             }
         },
+        Cmd::Bench { url, n, replay } => {
+            let mut times: Vec<u128> = Vec::new();
+            let mut bytes = 0usize;
+            let mut tokens = 0usize;
+            for _ in 0..(*n).max(1) {
+                let opts = cb_core::FetchOpts {
+                    url: url.clone(),
+                    replay: replay.clone(),
+                    fresh: true,
+                    ..Default::default()
+                };
+                let t0 = std::time::Instant::now();
+                let outcome = cb_core::fetch_page(ctx, &opts).await?;
+                times.push(t0.elapsed().as_millis());
+                bytes = outcome.raw.len();
+                tokens = outcome.tokens_estimate;
+            }
+            times.sort_unstable();
+            let min = times.first().copied().unwrap_or(0);
+            let max = times.last().copied().unwrap_or(0);
+            let avg = times.iter().sum::<u128>() / times.len().max(1) as u128;
+            if cli.json {
+                let envelope = Envelope::ok(
+                    output::meta(
+                        started.elapsed().as_millis() as u64,
+                        false,
+                        ctx.profile.as_str(),
+                    ),
+                    serde_json::json!({
+                        "url": url,
+                        "runs": times.len(),
+                        "min_ms": min,
+                        "avg_ms": avg,
+                        "max_ms": max,
+                        "bytes": bytes,
+                        "tokens": tokens,
+                    }),
+                );
+                output::print_json(&envelope);
+            } else {
+                println!(
+                    "runs {}  min {}ms  avg {}ms  max {}ms",
+                    times.len(),
+                    min,
+                    avg,
+                    max
+                );
+                println!("bytes {bytes}  tokens {tokens}");
+            }
+            Ok(0)
+        }
         Cmd::Log(args) => match &args.cmd {
             commands::log::LogCmd::Dir => {
                 let dir = cb_core::logging::logs_dir();
