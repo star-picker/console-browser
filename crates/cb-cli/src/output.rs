@@ -43,6 +43,7 @@ pub fn with_extract(mut meta: Meta, outcome: &cb_core::FetchOutcome) -> Meta {
         paragraphs,
         container_score: outcome.container_score,
         scope: outcome.scope.clone(),
+        is_article: outcome.is_article,
     });
     meta
 }

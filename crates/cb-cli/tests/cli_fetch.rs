@@ -66,6 +66,10 @@ fn fetch_md_json_shape_and_cache_hit() {
         .as_f64()
         .expect("container_score must be a real number, not null");
     assert!((0.0..=1.0).contains(&score), "score out of range: {score}");
+    assert_eq!(
+        v["meta"]["extract"]["is_article"], true,
+        "a main/article container must be flagged as article: {v}"
+    );
 
     let out2 = cb(&dir)
         .args(["fetch", "https://example.com/a", "--replay", &cassette])

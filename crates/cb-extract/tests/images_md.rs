@@ -81,6 +81,37 @@ fn image_inside_link_is_not_dropped() {
         md.text
     );
     assert_eq!(md.images.len(), 1);
+    assert_eq!(
+        md_images(&md.text).len(),
+        md.images.len(),
+        "linked image must not be counted twice:\n{}",
+        md.text
+    );
+}
+
+#[test]
+fn image_links_do_not_duplicate_images_in_the_links_section() {
+    // 链接数超过 inline 上限 → 追加 ## Links；图片标签不能在图后面再复制一遍。
+    let mut links = String::new();
+    for i in 0..35 {
+        links.push_str(&format!(
+            r#"<li><a href="https://example.com/link-{i}">link {i}</a></li>"#
+        ));
+    }
+    let html = format!(
+        r#"<html><body><article><h1>Links</h1>
+        <p>这段正文足够长，可以让主内容评分选中 article，而不是落到整页包裹层或者链接列表上。</p>
+        <p><a href="https://img.example.com/target"><img src="https://img.example.com/pic.png"></a></p>
+        <ul>{links}</ul></article></body></html>"#
+    );
+    let md = extract(&html);
+    assert!(md.text.contains("## Links"), "{}", md.text);
+    assert_eq!(
+        md_images(&md.text).len(),
+        md.images.len(),
+        "images[] and markdown must agree:\n{}",
+        md.text
+    );
 }
 
 #[test]

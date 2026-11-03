@@ -33,6 +33,9 @@ pub struct ExtractMeta {
     /// --scope 回执：selector 是否命中、命中前后字符数。
     #[serde(default)]
     pub scope: Option<cb_extract::ScopeReport>,
+    /// 选中的容器是否语义化正文容器；false 常见于列表页/门户页。
+    #[serde(default)]
+    pub is_article: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

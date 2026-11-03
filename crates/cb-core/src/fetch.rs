@@ -135,6 +135,9 @@ pub struct FetchOutcome {
     /// --scope 回执（meta.extract.scope 的来源，不进 data）。
     #[serde(skip)]
     pub scope: Option<cb_extract::ScopeReport>,
+    /// 选中的容器是不是语义化正文容器（meta.extract.is_article 的来源）。
+    #[serde(skip)]
+    pub is_article: bool,
     /// 试过哪些指纹、各自耗时（meta.attempts 的来源，不进 data）。
     #[serde(skip)]
     pub attempts: Vec<FetchAttempt>,
@@ -576,6 +579,7 @@ fn build_outcome(
         login,
         container_score: md.container_score,
         scope: md.scope.clone(),
+        is_article: md.is_article,
         attempts: Vec::new(),
         url: requested_url.to_string(),
         final_url: final_url.to_string(),

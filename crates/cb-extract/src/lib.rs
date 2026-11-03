@@ -39,6 +39,9 @@ pub struct Markdown {
     /// --scope 的回执：命中没有、命中前后多少字。没命中不是错误，但必须可自证。
     #[serde(default)]
     pub scope: Option<ScopeReport>,
+    /// 选中容器是否语义化（article/main/role=main）；列表页为 false。
+    #[serde(default)]
+    pub is_article: bool,
 }
 
 /// --scope 的回执。
@@ -159,6 +162,25 @@ pub(crate) fn best_image_src(el: ElementRef<'_>) -> Option<(String, bool)> {
 
 fn sel(css: &str) -> Option<Selector> {
     Selector::parse(css).ok()
+}
+
+/// 链接标签里如果有图片 markdown，Links 段用纯文字而不是再复制一遍图。
+fn strip_image_markdown(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0usize;
+    while i < chars.len() {
+        if chars[i] == '!' && i + 1 < chars.len() && chars[i + 1] == '[' {
+            if let Some((label, _url, next)) = parse_link(&chars, i + 1) {
+                out.push_str(label.trim());
+                i = next;
+                continue;
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out.trim().to_string()
 }
 
 /// 记录并（可选地）把一张图写成独立一行的 markdown。
@@ -297,8 +319,9 @@ fn inline_node(ctx: &mut Ctx, node: ego_tree::NodeRef<'_, scraper::Node>, out: &
                             out.push(' ');
                         }
                     }
+                    // Links 段只放文字标签；图片本体已经在正文里出现过了。
                     ctx.links.push(Link {
-                        text: text.to_string(),
+                        text: strip_image_markdown(&inner),
                         url: href.clone(),
                     });
                     if ctx.inline_links {
@@ -614,6 +637,7 @@ fn extract_inner(html: &str, opts: &ExtractOpts) -> anyhow::Result<(Markdown, bo
                         truncated: false,
                         container_score: None,
                         scope: None,
+                        is_article: false,
                     },
                     false,
                 ))
@@ -730,25 +754,49 @@ fn extract_inner(html: &str, opts: &ExtractOpts) -> anyhow::Result<(Markdown, bo
             truncated,
             container_score,
             scope: None,
+            is_article: semantic_root,
         },
         true,
     ))
 }
 
-/// 容器得分：选中容器的文本占 body 的比例，再按容器内链接密度扣分。
+/// 容器得分：选中容器的正文占整页正文的比例（0.0-1.0）。
 ///
-/// 只看绝对字符数无法区分「抓对了」和「抓多了」；列表页与整页包裹层
-/// 文本不少但链接密度高，必须压下去。
+/// 字面定义，不做链接密度扣分：链接多的文章依然是抓对的容器。
+/// 「这一页是不是文章」由 is_article 单独回答，别把两件事塞进一个数。
 fn container_score_of(doc: &Document, root: ElementRef<'_>) -> Option<f64> {
     let body = doc.body()?;
-    let body_len = doc.text_of(body).chars().count();
+    let body_len = visible_text_len(body);
     if body_len == 0 {
         return None;
     }
-    let root_len = doc.text_of(root).chars().count();
-    let share = (root_len as f64 / body_len as f64).clamp(0.0, 1.0);
-    let density = doc.link_density(root);
-    Some((share * (1.0 - density)).clamp(0.0, 1.0))
+    let root_len = visible_text_len(root);
+    Some((root_len as f64 / body_len as f64).clamp(0.0, 1.0))
+}
+
+/// 可见文本长度：跳过 script/style 等不可见节点。
+///
+/// 直接用 element.text() 会把内联脚本/JSON 也算成「页面正文」，
+/// 分母被撑大后，抓对了的文章也会被误判成可疑。
+fn visible_text_len(el: ElementRef<'_>) -> usize {
+    fn walk(node: ego_tree::NodeRef<'_, scraper::Node>, len: &mut usize) {
+        match node.value() {
+            scraper::Node::Text(t) => *len += t.text.chars().count(),
+            scraper::Node::Element(_) => {
+                let el = ElementRef::wrap(node).expect("element");
+                if cb_dom::SKIP_TAGS.contains(&el.value().name()) {
+                    return;
+                }
+                for child in node.children() {
+                    walk(child, len);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut len = 0usize;
+    walk(*el, &mut len);
+    len
 }
 
 /// 连续空行压成一个空行；图片独立成行会制造多余换行。
