@@ -1,3 +1,10 @@
+### 设计文档：日志文件（jsonl + 轮转 + 脱敏）
+
+- 新模块 `cb-core::logging`：日志目录（`%APPDATA%/console-browser/logs` 或 `$HOME/.local/state/...`）、按天 jsonl、超 2MB 轮转到 `.jsonl.1`。
+- **写盘前统一脱敏**：`Cookie:` / `Set-Cookie:` / `Authorization:` 整行值替换为 `***`，`token= / api_key= / key=` 只脱到分隔符。
+- 接线：单命令分发路径在结束（成功/失败）时写一条 `{ts, argv, code, elapsed_ms, error}`；stdout/JSON 完全不受影响。
+- CLI：`cb log dir`、`cb log tail [--n 20]`。
+- 测试：脱敏（cookie/bearer/token 值不落盘）、追加 + 轮转产生 `.jsonl.1`。
 ### 设计文档：FTS5 历史检索
 
 - 存储层 schema 升到 **v4**：新增 `history_fts`（FTS5，`content='history'`）+ 增/删/改三个触发器；升级老库时执行一次 `rebuild` 把已有历史灌进索引（幂等）。

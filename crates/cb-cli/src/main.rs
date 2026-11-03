@@ -111,6 +111,9 @@ enum Cmd {
     /// 人工接力登录 · Human-in-the-loop login (browser window or paste cookies)
     Login(commands::login::LoginArgs),
 
+    /// 日志文件 · Log files (jsonl, rotated, redacted)
+    Log(commands::log::LogArgs),
+
     /// 收藏 · Bookmarks
     Bookmark(commands::bookmark::BookmarkArgs),
 
@@ -489,7 +492,22 @@ fn main() {
         }
         Some(ref cmd) => {
             let started = Instant::now();
-            match runtime.block_on(run(&cli, &ctx, started, cmd)) {
+            let outcome = runtime.block_on(run(&cli, &ctx, started, cmd));
+            // 留痕只写文件，绝不混进 stdout/JSON。
+            let argv: Vec<String> = std::env::args().skip(1).collect();
+            let (code, error_code) = match &outcome {
+                Ok(c) => (*c, None),
+                Err(e) => (e.exit_code(), Some(e.body.code.clone())),
+            };
+            let record = serde_json::json!({
+                "ts": cb_core::now_secs(),
+                "argv": argv,
+                "code": code,
+                "elapsed_ms": started.elapsed().as_millis() as u64,
+                "error": error_code,
+            });
+            let _ = cb_core::logging::append(&record.to_string());
+            match outcome {
                 Ok(code) => std::process::exit(code),
                 Err(err) => {
                     output::report_error(
@@ -1070,6 +1088,36 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             }
             Ok(0)
         }
+        Cmd::Log(args) => match &args.cmd {
+            commands::log::LogCmd::Dir => {
+                let dir = cb_core::logging::logs_dir();
+                println!("{}", dir.display());
+                Ok(0)
+            }
+            commands::log::LogCmd::Tail { n } => {
+                let dir = cb_core::logging::logs_dir();
+                let mut files: Vec<_> = std::fs::read_dir(&dir)
+                    .map(|rd| {
+                        rd.flatten()
+                            .map(|e| e.path())
+                            .filter(|p| p.extension().map(|x| x == "jsonl").unwrap_or(false))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                files.sort();
+                let mut lines: Vec<String> = Vec::new();
+                for path in files {
+                    if let Ok(text) = std::fs::read_to_string(&path) {
+                        lines.extend(text.lines().map(|l| l.to_string()));
+                    }
+                }
+                let start = lines.len().saturating_sub(*n);
+                for line in &lines[start..] {
+                    println!("{line}");
+                }
+                Ok(0)
+            }
+        },
         Cmd::Bookmark(args) => match &args.cmd {
             commands::bookmark::BookmarkCmd::Add { url, title } => {
                 let title = title.clone().unwrap_or_else(|| url.clone());

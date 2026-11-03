@@ -6,6 +6,7 @@ pub mod cookies;
 pub mod db;
 pub mod export;
 pub mod fetch;
+pub mod log;
 pub mod login;
 pub mod mcp;
 pub mod plugin;

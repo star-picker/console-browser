@@ -12,6 +12,7 @@ pub mod error;
 pub mod export;
 pub mod fetch;
 pub mod i18n;
+pub mod logging;
 pub mod login;
 pub mod search;
 pub mod selftest;
