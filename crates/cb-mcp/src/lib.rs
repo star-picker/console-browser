@@ -1,8 +1,9 @@
 //! cb-mcp: 手写 JSON-RPC 2.0 over stdio 的 MCP 服务端。
 //! 只实现需要的子集：initialize / tools/list / tools/call / ping。
+#![allow(clippy::result_large_err)]
 
 use cb_core::fetch::Format;
-use cb_core::{registry, Ctx, FetchOpts};
+use cb_core::{registry, CbError, Ctx, FetchOpts};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -56,6 +57,7 @@ async fn call_tool(ctx: &Ctx, replay: Option<&std::path::Path>, params: &Value) 
                 max_tokens: args["max_tokens"].as_u64().map(|n| n as usize),
                 scope: args["scope"].as_str().map(|s| s.to_string()),
                 fresh: args["fresh"].as_bool().unwrap_or(false),
+                ai_escalate: args["ai_escalate"].as_bool().unwrap_or(false),
                 replay: replay.map(|p| p.to_path_buf()),
                 ..Default::default()
             };
@@ -69,7 +71,18 @@ async fn call_tool(ctx: &Ctx, replay: Option<&std::path::Path>, params: &Value) 
                     };
                     text_result(text, false)
                 }
-                Err(err) => text_result(format!("{}: {}", err.body.code, err.body.message), true),
+                Err(err) => {
+                    let hint = err
+                        .body
+                        .needs_user
+                        .as_ref()
+                        .map(|needs| format!(" | hint: {}", needs.hint))
+                        .unwrap_or_default();
+                    text_result(
+                        format!("{}: {}{}", err.body.code, err.body.message, hint),
+                        true,
+                    )
+                }
             }
         }
         "search_web" => {
@@ -104,6 +117,32 @@ async fn call_tool(ctx: &Ctx, replay: Option<&std::path::Path>, params: &Value) 
                 Err(e) => text_result(format!("store: {e}"), true),
             }
         }
+        "ask_model" => {
+            let Some(prompt) = args["prompt"].as_str().map(|s| s.to_string()) else {
+                return text_result("usage: prompt is required".to_string(), true);
+            };
+            let max_tokens = args["max_tokens"].as_u64().unwrap_or(400);
+            match cb_core::ai::complete(ctx, "ask", &prompt, max_tokens).await {
+                Ok(completion) => text_result(completion.text, false),
+                // 本地没 key：借调用方的模型（MCP sampling）。
+                Err(err) if err.body.code == "ai_not_configured" => match &ctx.sampler {
+                    Some(sampler) => match sampler.ask(&prompt).await {
+                        Ok(text) => text_result(text, false),
+                        Err(err) => {
+                            text_result(format!("{}: {}", err.body.code, err.body.message), true)
+                        }
+                    },
+                    None => text_result(
+                        format!(
+                            "{}: {} (client did not advertise sampling)",
+                            err.body.code, err.body.message
+                        ),
+                        true,
+                    ),
+                },
+                Err(err) => text_result(format!("{}: {}", err.body.code, err.body.message), true),
+            }
+        }
         "selftest_status" => {
             let report = cb_core::run_selftest(ctx);
             text_result(
@@ -115,21 +154,168 @@ async fn call_tool(ctx: &Ctx, replay: Option<&std::path::Path>, params: &Value) 
     }
 }
 
+/// sampling/createMessage 的响应里取文本：兼容 string / {text} / [{text}]。
+pub fn extract_sampling_text(result: &Value) -> Option<String> {
+    let content = &result["content"];
+    if let Some(text) = content.as_str() {
+        return Some(text.to_string());
+    }
+    if let Some(text) = content.get("text").and_then(Value::as_str) {
+        return Some(text.to_string());
+    }
+    if let Some(items) = content.as_array() {
+        for item in items {
+            if let Some(text) = item.get("text").and_then(Value::as_str) {
+                return Some(text.to_string());
+            }
+        }
+    }
+    result
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+const SAMPLING_ID_PREFIX: &str = "cb-sampling-";
+
+/// sampling 的发送/接收状态：放在 Arc 里，Sampler 必须是 Send + Sync。
+struct SamplerIo {
+    to_io: std::sync::mpsc::Sender<String>,
+    pending: std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<String>>>,
+    next_id: std::sync::atomic::AtomicU64,
+    supported: std::sync::atomic::AtomicBool,
+}
+
+impl SamplerIo {
+    fn ask_blocking(&self, prompt: &str, max_tokens: u64) -> Result<String, CbError> {
+        use std::sync::atomic::Ordering;
+        if !self.supported.load(Ordering::SeqCst) {
+            return Err(CbError::new_local(
+                "sampling_unavailable",
+                "client did not advertise the sampling capability",
+                "MCP client must implement sampling/createMessage",
+            ));
+        }
+        let id = format!(
+            "{SAMPLING_ID_PREFIX}{}",
+            self.next_id.fetch_add(1, Ordering::SeqCst) + 1
+        );
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.pending
+            .lock()
+            .map_err(|_| CbError::other("sampling lock poisoned"))?
+            .insert(id.clone(), tx);
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "sampling/createMessage",
+            "params": {
+                "messages": [{
+                    "role": "user",
+                    "content": { "type": "text", "text": prompt }
+                }],
+                "maxTokens": max_tokens,
+            }
+        });
+        if self.to_io.send(request.to_string()).is_err() {
+            return Err(CbError::other("stdio writer is gone"));
+        }
+        let line = match rx.recv_timeout(std::time::Duration::from_secs(300)) {
+            Ok(line) => line,
+            Err(_) => {
+                if let Ok(mut pending) = self.pending.lock() {
+                    pending.remove(&id);
+                }
+                return Err(CbError::timeout(
+                    "timed out after 300s waiting for the client's sampling response",
+                ));
+            }
+        };
+        let value: Value = serde_json::from_str(&line)
+            .map_err(|e| CbError::other(format!("client sampling response is not json: {e}")))?;
+        if let Some(error) = value.get("error") {
+            return Err(CbError::other(format!("client sampling error: {error}")));
+        }
+        extract_sampling_text(&value["result"])
+            .ok_or_else(|| CbError::other("client sampling response has no text"))
+    }
+}
+
+struct SamplingSampler {
+    io: std::sync::Arc<SamplerIo>,
+}
+
+impl cb_core::ai::ModelSampler for SamplingSampler {
+    fn ask<'a>(&'a self, prompt: &'a str) -> cb_core::ai::SamplerFuture<'a> {
+        // 采样是阻塞的 stdio 往返：同步做完再返回 ready future，
+        // 这样 future 是 Send，也不会把非 Send 的锁带进 async 块。
+        Box::pin(std::future::ready(self.io.ask_blocking(prompt, 400)))
+    }
+}
+
+/// stdio 读写放到两个线程：读线程负责把 sampling 响应路由回等待者，写线程独占 stdout。
+fn spawn_io_threads(
+    sampler: std::sync::Arc<SamplerIo>,
+    to_io: std::sync::mpsc::Receiver<String>,
+    from_io: std::sync::mpsc::Sender<String>,
+) {
+    std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(std::io::stdin().lock());
+        loop {
+            let mut buf: Vec<u8> = Vec::new();
+            match reader.read_until(b'\n', &mut buf) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+            let line = String::from_utf8_lossy(&buf).to_string();
+            let mut routed = false;
+            if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                if let Some(id) = value.get("id").and_then(Value::as_str) {
+                    if id.starts_with(SAMPLING_ID_PREFIX) {
+                        if let Ok(mut pending) = sampler.pending.lock() {
+                            if let Some(tx) = pending.remove(id) {
+                                let _ = tx.send(line.clone());
+                                routed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if !routed && from_io.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    std::thread::spawn(move || {
+        let mut writer = std::io::stdout();
+        while let Ok(payload) = to_io.recv() {
+            let _ = writeln!(writer, "{payload}");
+            let _ = writer.flush();
+        }
+    });
+}
+
 /// 阻塞在 stdin 上逐行处理 JSON-RPC 请求；EOF 退出。
 pub async fn serve_stdio(ctx: &Ctx, replay: Option<PathBuf>) -> anyhow::Result<()> {
-    let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
-    let mut reader = stdin.lock();
+    let (to_io_tx, to_io_rx) = std::sync::mpsc::channel::<String>();
+    let (from_io_tx, from_io_rx) = std::sync::mpsc::channel::<String>();
+    let sampler_io = std::sync::Arc::new(SamplerIo {
+        to_io: to_io_tx.clone(),
+        pending: std::sync::Mutex::new(std::collections::HashMap::new()),
+        next_id: std::sync::atomic::AtomicU64::new(0),
+        supported: std::sync::atomic::AtomicBool::new(false),
+    });
+    spawn_io_threads(sampler_io.clone(), to_io_rx, from_io_tx);
+    let sampler = std::sync::Arc::new(SamplingSampler {
+        io: sampler_io.clone(),
+    });
+    let ctx = ctx.clone().with_sampler(sampler);
+    let write = |payload: String| {
+        let _ = to_io_tx.send(payload);
+    };
 
-    loop {
-        // 逐字节读到换行：单行不是合法 UTF-8 也不能把服务端搞死。
-        let mut buf: Vec<u8> = Vec::new();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(e) => return Err(e.into()),
-        }
-        let line = String::from_utf8_lossy(&buf).to_string();
+    while let Ok(line) = from_io_rx.recv() {
         if line.trim().is_empty() {
             continue;
         }
@@ -137,8 +323,7 @@ pub async fn serve_stdio(ctx: &Ctx, replay: Option<PathBuf>) -> anyhow::Result<(
             Ok(v) => v,
             Err(e) => {
                 let resp = rpc_error(Value::Null, -32700, format!("parse error: {e}"));
-                writeln!(stdout, "{resp}")?;
-                stdout.flush()?;
+                write(serde_json::to_string(&resp).unwrap_or_default());
                 continue;
             }
         };
@@ -153,6 +338,13 @@ pub async fn serve_stdio(ctx: &Ctx, replay: Option<PathBuf>) -> anyhow::Result<(
         }
         let id = id.unwrap_or(Value::Null);
 
+        if method == "initialize" {
+            let supports = request["params"]["capabilities"]["sampling"].is_object();
+            sampler_io
+                .supported
+                .store(supports, std::sync::atomic::Ordering::SeqCst);
+        }
+
         let response = match method.as_str() {
             "initialize" => json!({
                 "jsonrpc": "2.0",
@@ -166,14 +358,38 @@ pub async fn serve_stdio(ctx: &Ctx, replay: Option<PathBuf>) -> anyhow::Result<(
             "ping" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
             "tools/list" => json!({ "jsonrpc": "2.0", "id": id, "result": tool_list() }),
             "tools/call" => {
-                let result = call_tool(ctx, replay.as_deref(), &request["params"]).await;
+                let result = call_tool(&ctx, replay.as_deref(), &request["params"]).await;
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
             other => rpc_error(id, -32601, format!("method not found: {other}")),
         };
-
-        writeln!(stdout, "{response}")?;
-        stdout.flush()?;
+        write(serde_json::to_string(&response).unwrap_or_default());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sampling_text_accepts_all_three_shapes() {
+        assert_eq!(
+            extract_sampling_text(&json!({"content": "hi"})),
+            Some("hi".to_string())
+        );
+        assert_eq!(
+            extract_sampling_text(&json!({"content": {"type": "text", "text": "hi"}})),
+            Some("hi".to_string())
+        );
+        assert_eq!(
+            extract_sampling_text(&json!({"content": [{"type": "text", "text": "hi"}]})),
+            Some("hi".to_string())
+        );
+        assert_eq!(
+            extract_sampling_text(&json!({"text": "hi"})),
+            Some("hi".to_string())
+        );
+        assert_eq!(extract_sampling_text(&json!({"content": []})), None);
+    }
 }

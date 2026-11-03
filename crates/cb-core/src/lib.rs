@@ -41,6 +41,8 @@ pub struct Ctx {
     pub profile: Profile,
     /// cookie jar：登录态复用（sqlite 后端）。
     pub cookies: std::sync::Arc<dyn cb_net::cookies::CookieStore>,
+    /// 本地模型不可用时，向调用方（MCP client）借模型。
+    pub sampler: Option<std::sync::Arc<dyn ai::ModelSampler>>,
 }
 
 impl Ctx {
@@ -50,7 +52,14 @@ impl Ctx {
             store,
             profile,
             cookies: std::sync::Arc::new(jar),
+            sampler: None,
         }
+    }
+
+    /// 挂上「向调用方借模型」的采样器（MCP sampling）。
+    pub fn with_sampler(mut self, sampler: std::sync::Arc<dyn ai::ModelSampler>) -> Ctx {
+        self.sampler = Some(sampler);
+        self
     }
 
     /// 当前 Unix 秒。测试可用 `ctx.now` 的固定时钟覆盖（见 `with_now`）。

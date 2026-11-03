@@ -47,7 +47,8 @@ fn browse_url() -> ToolSpec {
                 "format": {"type": "string", "enum": ["md", "html", "text", "json"], "default": "md"},
                 "max_tokens": {"type": "integer", "minimum": 1},
                 "scope": {"type": "string", "description": "CSS selector to restrict extraction"},
-                "fresh": {"type": "boolean", "default": false}
+                "fresh": {"type": "boolean", "default": false},
+                "ai_escalate": {"type": "boolean", "description": "on a challenge, ask the client model for advice (sampling)", "default": false}
             }
         }),
         output_schema: CONTENT_SCHEMA(),
@@ -72,6 +73,27 @@ fn history_search() -> ToolSpec {
             "properties": {
                 "entries": {"type": "array", "items": {"type": "object"}}
             }
+        }),
+    }
+}
+
+fn ask_model() -> ToolSpec {
+    ToolSpec {
+        name: "ask_model",
+        summary: "问模型一句话；本地没配 key 时向 MCP client 借模型（sampling/createMessage）。",
+        summary_en: "Ask the model; when no local key is configured, borrow the MCP client model via sampling/createMessage.",
+        kind: "meta",
+        input_schema: json!({
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+                "prompt": {"type": "string"},
+                "max_tokens": {"type": "integer", "minimum": 1, "default": 400}
+            }
+        }),
+        output_schema: json!({
+            "type": "object",
+            "properties": { "text": {"type": "string"} }
         }),
     }
 }
@@ -143,6 +165,7 @@ pub fn registry() -> &'static [ToolSpec] {
             vec![
                 browse_url(),
                 search_web(),
+                ask_model(),
                 history_search(),
                 selftest_status(),
             ]

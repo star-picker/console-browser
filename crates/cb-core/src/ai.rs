@@ -4,7 +4,18 @@
 use crate::error::CbError;
 use crate::Ctx;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
+
+pub type SamplerFuture<'a> = Pin<Box<dyn Future<Output = Result<String, CbError>> + Send + 'a>>;
+
+/// 本地没有模型 key 时，把提示词交给调用方去跑。
+///
+/// MCP 场景下由 client 回 sampling/createMessage；实现方负责协议，AI 层只管要一段文本。
+pub trait ModelSampler: Send + Sync {
+    fn ask<'a>(&'a self, prompt: &'a str) -> SamplerFuture<'a>;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Provider {

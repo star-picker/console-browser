@@ -25,6 +25,9 @@ fn run_session(
         .arg("serve")
         .arg("--replay")
         .arg(cassette)
+        .env_remove("DEEPSEEK_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("CB_AI_KEY")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -57,6 +60,7 @@ fn run_session(
 }
 
 const INIT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}"#;
+const INIT_SAMPLING: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"sampling":{}},"clientInfo":{"name":"test","version":"0"}}}"#;
 const INITIALIZED: &str = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
 const LIST: &str = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
 
@@ -177,4 +181,163 @@ fn search_web_tool_is_exposed_and_callable() {
         .as_str()
         .expect("text");
     assert!(text.contains("BurntSushi/ripgrep"), "got: {text}");
+}
+
+#[test]
+fn ask_model_without_sampling_capability_reports_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = fixture("page.cassette.json");
+    let call = r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ask_model","arguments":{"prompt":"ping"}}}"#;
+    let responses = run_session(&dir, &cassette, &[INIT, LIST, call]);
+    assert_eq!(responses.len(), 3);
+    let call = &responses[2];
+    assert_eq!(call["result"]["isError"], true, "{call}");
+    let text = call["result"]["content"][0]["text"].as_str().expect("text");
+    assert!(
+        text.contains("sampling"),
+        "error must explain sampling is unavailable: {text}"
+    );
+}
+
+#[test]
+fn sampling_request_is_sent_and_answered() {
+    use std::io::{BufRead, BufReader, Write};
+    let dir = tempfile::tempdir().expect("tempdir");
+    let exe = assert_cmd::cargo::cargo_bin("cb");
+    let mut child = Command::new(exe)
+        .arg("--db")
+        .arg(dir.path().join("cb.db"))
+        .args(["mcp", "serve"])
+        .env_remove("DEEPSEEK_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("CB_AI_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn cb mcp serve");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
+
+    let read = |reader: &mut BufReader<std::process::ChildStdout>| -> serde_json::Value {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("read response");
+        serde_json::from_str(&line).unwrap_or_else(|e| panic!("not json ({e}): {line}"))
+    };
+
+    writeln!(stdin, "{INIT_SAMPLING}").expect("write init");
+    stdin.flush().expect("flush");
+    let init = read(&mut stdout);
+    assert_eq!(init["id"], 1);
+
+    let call = r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ask_model","arguments":{"prompt":"ping"}}}"#;
+    writeln!(stdin, "{call}").expect("write call");
+    stdin.flush().expect("flush");
+
+    let sampling = read(&mut stdout);
+    assert_eq!(sampling["method"], "sampling/createMessage", "{sampling}");
+    let text = sampling["params"]["messages"][0]["content"]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("ping"),
+        "prompt must reach the client: {sampling}"
+    );
+    let sampling_id = sampling["id"].as_str().expect("string id").to_string();
+
+    let answer = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": sampling_id,
+        "result": {
+            "role": "assistant",
+            "content": { "type": "text", "text": "sampled-pong" },
+            "model": "client-model",
+        }
+    });
+    writeln!(stdin, "{answer}").expect("write sampling answer");
+    stdin.flush().expect("flush");
+
+    let tool = read(&mut stdout);
+    assert_eq!(tool["id"], 3, "{tool}");
+    assert_eq!(tool["result"]["isError"], false, "{tool}");
+    let text = tool["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert_eq!(text, "sampled-pong", "{tool}");
+
+    drop(stdin);
+    let status = child.wait().expect("wait");
+    assert!(status.success(), "server exit: {status:?}");
+}
+
+#[test]
+fn challenge_escalation_uses_client_sampling_when_no_local_key() {
+    use std::io::{BufRead, BufReader, Write};
+    let dir = tempfile::tempdir().expect("tempdir");
+    let exe = assert_cmd::cargo::cargo_bin("cb");
+    let mut child = Command::new(exe)
+        .arg("--db")
+        .arg(dir.path().join("cb.db"))
+        .args(["mcp", "serve"])
+        .arg("--replay")
+        .arg(fixture("challenge_403.cassette.json"))
+        .env_remove("DEEPSEEK_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("CB_AI_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn cb mcp serve");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
+    let read = |reader: &mut BufReader<std::process::ChildStdout>| -> serde_json::Value {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("read response");
+        serde_json::from_str(&line).unwrap_or_else(|e| panic!("not json ({e}): {line}"))
+    };
+
+    writeln!(stdin, "{INIT_SAMPLING}").expect("write init");
+    stdin.flush().expect("flush");
+    let _ = read(&mut stdout);
+
+    let call = r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"browse_url","arguments":{"url":"https://blocked.example/challenge","ai_escalate":true}}}"#;
+    writeln!(stdin, "{call}").expect("write call");
+    stdin.flush().expect("flush");
+
+    let sampling = read(&mut stdout);
+    assert_eq!(sampling["method"], "sampling/createMessage", "{sampling}");
+    let prompt = sampling["params"]["messages"][0]["content"]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        prompt.contains("anti-bot") || prompt.contains("blocked"),
+        "challenge prompt must carry the situation: {sampling}"
+    );
+    let id = sampling["id"].as_str().expect("string id").to_string();
+    let answer = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "role": "assistant",
+            "content": { "type": "text", "text": "sampled challenge advice" },
+            "model": "client-model",
+        }
+    });
+    writeln!(stdin, "{answer}").expect("write answer");
+    stdin.flush().expect("flush");
+
+    let tool = read(&mut stdout);
+    assert_eq!(tool["result"]["isError"], true, "{tool}");
+    let text = tool["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("sampled challenge advice"),
+        "advice must reach the caller through the hint: {tool}"
+    );
+
+    drop(stdin);
+    let status = child.wait().expect("wait");
+    assert!(status.success(), "server exit: {status:?}");
 }

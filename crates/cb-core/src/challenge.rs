@@ -23,6 +23,17 @@ Do not invent credentials."
 /// 问模型下一步怎么办；返回一句可直接拼进错误提示的建议。
 pub async fn llm_advice(ctx: &Ctx, url: &str, body: &str) -> Result<String, CbError> {
     let prompt = build_prompt(url, body);
+    // 本地没有模型 key 时，借调用方的模型（MCP sampling）；有 key 先用本地。
+    if let Some(sampler) = &ctx.sampler {
+        if ai::AiConfig::from_env().ensure_ready().is_err() {
+            let text = sampler.ask(&prompt).await?;
+            let advice: String = text.trim().chars().take(400).collect();
+            if advice.is_empty() {
+                return Err(CbError::other("sampler returned empty challenge advice"));
+            }
+            return Ok(advice);
+        }
+    }
     let completion = ai::complete(ctx, "challenge", &prompt, 200).await?;
     let advice: String = completion.text.trim().chars().take(400).collect();
     if advice.is_empty() {

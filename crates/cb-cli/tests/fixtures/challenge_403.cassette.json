@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://blocked.example/challenge",
+      "final_url": "https://blocked.example/challenge",
+      "status": 403,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "body": "<html><head><title>Just a moment</title></head><body><main><h1>Checking your browser before accessing</h1><p>Please verify you are human. Cloudflare ray id 123.</p></main></body></html>"
+    }
+  ]
+}
