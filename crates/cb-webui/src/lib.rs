@@ -7,7 +7,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::sse::{Event, Sse};
 use axum::response::Html;
 use axum::routing::{get, post};
@@ -177,8 +177,29 @@ pub fn router(state: WebState) -> Router {
         .with_state(state)
 }
 
-async fn index() -> Html<&'static str> {
-    Html(INDEX_HTML)
+#[derive(Debug, Default, Deserialize)]
+pub struct IndexQuery {
+    pub url: Option<String>,
+}
+
+async fn index(Query(q): Query<IndexQuery>) -> Html<String> {
+    Html(index_html(q.url.as_deref()))
+}
+
+/// 首页 HTML；带 ?url= 时把起始地址注入页面，前端加载后自动 navigate。
+pub fn index_html(start: Option<&str>) -> String {
+    let Some(start) = start.map(str::trim).filter(|u| !u.is_empty()) else {
+        return INDEX_HTML.to_string();
+    };
+    // 注入 JS 字符串：转义 HTML 敏感字符，防止 URL 提前闭合 script。
+    let mut js = serde_json::to_string(start).unwrap_or_else(|_| "\"\"".to_string());
+    js = js
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026");
+    let injected =
+        format!("<script>window.__CB_START_URL__ = {js};</script>\n<script>\nconst START_URL");
+    INDEX_HTML.replace("<script>\nconst START_URL", &injected)
 }
 
 async fn state_json(State(state): State<WebState>) -> Json<Snapshot> {
@@ -303,6 +324,68 @@ mod tests {
         assert!(INDEX_HTML.contains("EventSource"), "must stream via SSE");
         assert!(INDEX_HTML.contains("/api/navigate"));
         assert!(!INDEX_HTML.contains("http://cdn"), "no external assets");
+    }
+
+    #[test]
+    fn index_without_url_stays_empty() {
+        let html = index_html(None);
+        assert_eq!(html, INDEX_HTML);
+        assert!(
+            !html.contains("window.__CB_START_URL__ ="),
+            "no start url assignment when the query is absent"
+        );
+    }
+
+    #[test]
+    fn index_with_url_injects_start_url_and_auto_navigate() {
+        let html = index_html(Some("https://example.com/a?x=1&y=2"));
+        assert!(
+            html.contains("window.__CB_START_URL__ = "),
+            "start url must be injected"
+        );
+        assert!(html.contains("https://example.com/a?x=1"), "{html}");
+        assert!(html.contains("if (START_URL) navigate(START_URL);"));
+        assert!(html.contains("const START_URL = window.__CB_START_URL__ || null;"));
+    }
+
+    #[test]
+    fn start_url_cannot_break_out_of_the_script_tag() {
+        let html = index_html(Some("https://x/</script><script>alert(1)</script>"));
+        assert!(
+            !html.contains("</script><script>alert(1)"),
+            "injection must be escaped: {html}"
+        );
+        assert!(html.contains("\\u003c/script"), "{html}");
+    }
+
+    #[tokio::test]
+    async fn get_with_url_query_returns_page_carrying_that_url() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let store = cb_store::Store::open_in_memory().expect("store");
+        let state = WebState::new(cb_core::Ctx::new(store, cb_net::Profile::Chrome));
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router(state)).await;
+        });
+
+        let mut stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        stream
+            .write_all(
+                b"GET /?url=https%3A%2F%2Fexample.com%2F HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("write");
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).await.expect("read");
+        let text = String::from_utf8_lossy(&buf);
+        assert!(text.contains("200"), "expected 200: {text}");
+        assert!(
+            text.contains("__CB_START_URL__ = \"https://example.com/\""),
+            "response must carry the navigate target: {text}"
+        );
     }
 
     #[test]

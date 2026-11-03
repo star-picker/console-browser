@@ -40,6 +40,7 @@
 <div id="status">connecting…</div>
 <main id="page"><p>等待第一帧…</p></main>
 <script>
+const START_URL = window.__CB_START_URL__ || null;
 const status = document.getElementById('status');
 const page = document.getElementById('page');
 const url = document.getElementById('url');
@@ -78,16 +79,19 @@ function render(snap) {
 const es = new EventSource('/events');
 es.addEventListener('snapshot', ev => render(JSON.parse(ev.data)));
 es.onerror = () => { status.textContent = 'disconnected — retrying…'; };
-document.getElementById('go').addEventListener('submit', async ev => {
-  ev.preventDefault();
-  const target = url.value.trim();
+async function navigate(target) {
   if (!target) return;
   status.textContent = 'loading ' + target;
   try {
     const res = await fetch('/api/navigate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: target }) });
     render(await res.json());
   } catch (e) { status.textContent = 'navigate failed: ' + e; }
+}
+document.getElementById('go').addEventListener('submit', ev => {
+  ev.preventDefault();
+  navigate(url.value.trim());
 });
+if (START_URL) navigate(START_URL);
 </script>
 </body>
 </html>
