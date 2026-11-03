@@ -1,3 +1,9 @@
+### cb-js 第四步：预取缓存版 fetch 桥
+
+- `install_fetch(entries)`：调用方先把 URL 抓成 `(url, body)`，脚本里的 `fetch(url)` 同步取缓存，返回 `{ok,status,text(),json(),then(cb)}` 形状；未预取的 URL 返回 404 形状。
+- CLI：`cb js <page> --fetch <api-url> --code …` 先把 `--fetch` 的页面抓成正文塞进缓存，再执行脚本。
+- **明确的边界**：无真实网络、无 Promise 微任务调度 —— 只让「先取数据再填 DOM」的简单脚本跑通；完整 fetch/事件循环仍在队列里（不装作完整浏览器）。
+- 测试：`fetch('…/data').json().title == 'hi'`、未缓存 URL 的 status 为 404。
 ### cb-js 第三步：BOM 桩（location / localStorage / navigator / console）
 
 - `install_bom(url, lang)`：`location.href/host`、`navigator.userAgent/language`、内存版 `localStorage`（getItem/setItem/removeItem/clear）、`console.log/warn/error` 收集到 `__cb_log`。

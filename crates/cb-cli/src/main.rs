@@ -134,6 +134,9 @@ enum Cmd {
         /// 从 cassette 回放 · Replay a cassette
         #[arg(long, value_name = "FILE")]
         replay: Option<PathBuf>,
+        /// 预取给脚本 fetch 用的 URL（可重复）· Prefetch URLs for script fetch()
+        #[arg(long = "fetch", value_name = "URL")]
+        fetch: Vec<String>,
     },
 
     /// 插件清单/权限 · Plugins (manifest + permissions)
@@ -1265,7 +1268,12 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 Ok(0)
             }
         },
-        Cmd::Js { url, code, replay } => {
+        Cmd::Js {
+            url,
+            code,
+            replay,
+            fetch,
+        } => {
             let engine = cb_js::JsRuntime::new().map_err(|e| CbError::js(e.to_string()))?;
             if let Some(target) = url {
                 let opts = cb_core::FetchOpts {
@@ -1279,6 +1287,22 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     .map_err(|e| CbError::js(e.to_string()))?;
                 engine
                     .install_bom(&outcome.final_url, "zh-CN")
+                    .map_err(|e| CbError::js(e.to_string()))?;
+            }
+            if !fetch.is_empty() {
+                let mut entries: Vec<(String, String)> = Vec::new();
+                for target in fetch {
+                    let opts = cb_core::FetchOpts {
+                        url: target.clone(),
+                        replay: replay.clone(),
+                        ..Default::default()
+                    };
+                    if let Ok(outcome) = cb_core::fetch_page(ctx, &opts).await {
+                        entries.push((target.clone(), outcome.markdown));
+                    }
+                }
+                engine
+                    .install_fetch(&entries)
                     .map_err(|e| CbError::js(e.to_string()))?;
             }
             let code = code.clone().unwrap_or_else(|| "document.title".to_string());

@@ -67,6 +67,30 @@ impl JsRuntime {
         Ok(())
     }
 
+    /// 装一个「预取缓存版 fetch」：调用方先把 URL 抓成 (url, body)，
+    /// 脚本里的 fetch(url) 同步取缓存；没有缓存的 URL 返回 404 形状的响应。
+    /// 这不是完整 fetch（无网络、无 Promise 调度），但足以让「先取数据再填 DOM」的脚本跑通。
+    pub fn install_fetch(&self, entries: &[(String, String)]) -> Result<()> {
+        let map = entries
+            .iter()
+            .map(|(url, body)| (url.clone(), body.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let json = serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string());
+        let js = format!(
+            "globalThis.__cb_fetch_cache = {json};\n\
+             globalThis.fetch = (url) => {{\n\
+               const key = String(url);\n\
+               const body = __cb_fetch_cache[key] ?? null;\n\
+               const res = {{ ok: body !== null, status: body !== null ? 200 : 404,\n\
+                 text: () => (body ?? ''),\n\
+                 json: () => {{ try {{ return JSON.parse(body); }} catch (e) {{ return null; }} }},\n\
+                 then: (cb) => {{ if (cb) cb(res); return res; }} }};\n\
+               return res;\n\
+             }};"
+        );
+        self.ctx.with(|ctx| ctx.eval::<(), _>(js.as_bytes()))?;
+        Ok(())
+    }
     /// 装 BOM 桩：location / localStorage / navigator / console。
     pub fn install_bom(&self, url: &str, lang: &str) -> Result<()> {
         let js = format!(
@@ -150,6 +174,26 @@ mod tests {
         let rt = JsRuntime::new().expect("runtime");
         assert_eq!(rt.eval("1 + 1").expect("eval"), "2");
         assert_eq!(rt.eval("'cb'.toUpperCase()").expect("eval"), "CB");
+    }
+
+    #[test]
+    fn prefetched_fetch_serves_cached_bodies() {
+        let rt = JsRuntime::new().expect("runtime");
+        rt.install_fetch(&[(
+            "https://api.example/data".to_string(),
+            "{\"title\":\"hi\"}".to_string(),
+        )])
+        .expect("install");
+        assert_eq!(
+            rt.eval("fetch('https://api.example/data').json().title")
+                .expect("json"),
+            "hi"
+        );
+        assert_eq!(
+            rt.eval("fetch('https://api.example/missing').status")
+                .expect("miss"),
+            "404"
+        );
     }
 
     #[test]
