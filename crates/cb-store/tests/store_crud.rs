@@ -234,3 +234,17 @@ fn revisions_dedupe_identical_content() {
     assert_eq!(rows[0].chars, 140);
     assert_eq!(rows[1].sha, "sha1");
 }
+#[test]
+fn counts_cover_learning_tables() {
+    let store = cb_store::Store::open_in_memory().expect("store");
+    store.add_bookmark("https://a/", "A").expect("bm");
+    store.save_revision("https://a/", "s1", 10, 1).expect("rev");
+    store
+        .record_site("a.example", "chrome", true)
+        .expect("site");
+    let counts = store.counts().expect("counts");
+    assert_eq!(counts.bookmarks, 1, "{counts:?}");
+    assert_eq!(counts.page_revisions, 1);
+    assert_eq!(counts.site_strategy, 1);
+    assert_eq!(counts.history, 0);
+}

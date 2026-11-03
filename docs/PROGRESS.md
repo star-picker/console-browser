@@ -1,3 +1,8 @@
+### `cb db stats` 覆盖新表
+
+- `Store::counts()` 原来只数 pages/cache_entries/history/logs，现在补上 bookmarks、page_revisions、site_strategy、cookies、tabs（v3~v6 新增的表）。
+- 冒烟：`cb db stats --json` 能看到 `bookmarks/page_revisions/site_strategy` 计数（新库为 0）。
+- 测试：`store_crud` 一条（写入收藏/版本/站点策略后 counts 各自为 1，history 仍为 0）。
 ### cb-js：内联脚本执行（`cb js --run-inline`）
 
 - `JsRuntime::inline_scripts(html)`：按文档顺序取内联 `<script>`，跳过 `src` 外链、`application/json`、模板类型；上限 50 段。

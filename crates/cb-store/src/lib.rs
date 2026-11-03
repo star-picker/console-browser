@@ -313,6 +313,11 @@ pub struct Counts {
     pub cache_entries: i64,
     pub history: i64,
     pub logs: i64,
+    pub bookmarks: i64,
+    pub page_revisions: i64,
+    pub site_strategy: i64,
+    pub cookies: i64,
+    pub tabs: i64,
 }
 
 #[derive(Clone)]
@@ -976,6 +981,11 @@ impl Store {
             cache_entries: count("cache_entries")?,
             history: count("history")?,
             logs: count("logs")?,
+            bookmarks: count("bookmarks")?,
+            page_revisions: count("page_revisions")?,
+            site_strategy: count("site_strategy")?,
+            cookies: count("cookies")?,
+            tabs: count("tabs")?,
         })
     }
 
