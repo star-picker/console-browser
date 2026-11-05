@@ -66,8 +66,8 @@
 - [x] cb-session + daemon（命名管道、句柄 `@eN`、delta 快照）
 - [x] AI 流式输出（`cb ai ask --stream`）
 - [x] MCP sampling 回调（挑战/AI 升级时问调用方）
-- [ ] 日志轮转（已做 jsonl+轮转+脱敏）之外的查询/统计
-- [ ] 性能守门与长文实测
+- [x] 日志：jsonl + 轮转 + 脱敏 + `cb log stats` 聚合（命令次数/错误码/平均耗时）
+- [x] 性能守门：`cb bench <url>`（min/avg/max ms、bytes、tokens）；长文实测仍待补
 
 ## 已完成的旧计划（T0-T13）
 

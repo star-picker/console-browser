@@ -1,5 +1,8 @@
 # 交接文档（HANDOFF）
 
+> **2026-11-05 更新**：SSH 通道已恢复，本地 19 个提交已全部推送（`e649c46..1cd2717`）。
+> 在 HEAD `1cd2717` 上复验：`cargo fmt --check` 通过、`clippy -D warnings` 0 告警、`cargo test --workspace` **274 passed**。
+
 > 给下一个会话的接手人看。写于第三阶段（daemon / AI 流式 / MCP sampling / cb-js 事件循环 + DOM 树），HEAD `7edea72`。
 
 ## 一句话状态
