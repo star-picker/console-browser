@@ -142,6 +142,9 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
         }
     }
 
+    // 双击判定：同一行、400ms 内。
+    let mut last_click: Option<(u16, std::time::Instant)> = None;
+
     loop {
         app.on_tick();
         screen.draw(&app)?;
@@ -175,7 +178,7 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
                         MouseEventKind::ScrollUp => app.scroll_by(-3),
                         MouseEventKind::ScrollDown => app.scroll_by(3),
                         MouseEventKind::Down(_) => {
-                            // 点到第 n 行 → 聚焦该行第一个链接
+                            // 单击：聚焦该行第一个链接；同一行 400ms 内双击：直接打开。
                             let body_top = 2u16;
                             if mouse.row >= body_top {
                                 let line_idx = app.tab().scroll + (mouse.row - body_top);
@@ -186,7 +189,19 @@ pub fn run(ctx: Ctx, opts: DriverOpts) -> anyhow::Result<i32> {
                                     .and_then(|p| p.layout.lines.get(line_idx as usize))
                                     .and_then(|l| l.cells.iter().find_map(|c| c.link));
                                 if let Some(id) = target {
+                                    let now = std::time::Instant::now();
+                                    let double = is_double_click(last_click, mouse.row, now);
+                                    last_click = Some((mouse.row, now));
                                     app.tab_mut().focus = Some(id);
+                                    if double {
+                                        if let Some(effect) =
+                                            app.apply(crate::action::Action::OpenFocusedLink {
+                                                new_tab: false,
+                                            })
+                                        {
+                                            dispatch(effect, &req_tx, &mut app);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -682,6 +697,20 @@ fn save_session(ctx: &Ctx, app: &crate::App) {
         .collect();
     let _ = ctx.store.save_tabs(&rows);
 }
+/// 双击判定：同一行且间隔 ≤400ms。
+fn is_double_click(
+    prev: Option<(u16, std::time::Instant)>,
+    row: u16,
+    now: std::time::Instant,
+) -> bool {
+    match prev {
+        Some((prev_row, at)) => {
+            prev_row == row && now.duration_since(at) <= std::time::Duration::from_millis(400)
+        }
+        None => false,
+    }
+}
+
 /// 输入模式下，哪些按键应该变成字符：除 Ctrl/Alt 组合外都算，
 /// Shift 必须放过（否则大写字母和冒号都打不出来）。
 pub fn text_input_char(key: crossterm::event::KeyEvent) -> Option<char> {
@@ -699,6 +728,27 @@ pub fn text_input_char(key: crossterm::event::KeyEvent) -> Option<char> {
 mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn double_click_needs_same_row_and_quick_succession() {
+        let t0 = std::time::Instant::now();
+        assert!(!is_double_click(None, 5, t0));
+        assert!(is_double_click(
+            Some((5, t0)),
+            5,
+            t0 + std::time::Duration::from_millis(200)
+        ));
+        assert!(!is_double_click(
+            Some((5, t0)),
+            6,
+            t0 + std::time::Duration::from_millis(200)
+        ));
+        assert!(!is_double_click(
+            Some((5, t0)),
+            5,
+            t0 + std::time::Duration::from_millis(900)
+        ));
+    }
 
     #[test]
     fn shift_characters_are_typed_including_colon() {

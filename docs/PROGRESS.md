@@ -1,3 +1,8 @@
+### TUI 鼠标：双击直接打开链接
+
+- 单击仍然只是「聚焦该行链接」（状态栏出 URL）；**同一行 400ms 内双击 = 打开**（`OpenFocusedLink`），符合浏览器直觉。
+- 判定抽成纯函数 `is_double_click(prev, row, now)` 并加测试（同行+时限内才算、换行不算、超时不算）。
+- 顺带说明：这是用户「链接不能点」反馈的最后一块 —— 现在键盘 Tab/Enter 与鼠标双击两条路都能打开。
 ### 第三阶段：daemon / AI 流式 / MCP sampling / cb-js 事件循环
 
 - **cb-session + daemon**：新 crate 放协议（换行 JSON：id/method/params → ok/result|error）、句柄表、块级差量；transport 在 Windows 用命名管道、Unix 用域套接字，单连接一次请求-响应。裁决：daemon 内会话表用 Mutex 串行（先正确再并发）；句柄只增不减，页面保留上一版快照，只有 `since == revision-1` 才回 delta，其它情况回 full——调用方永远能自证拿到的是哪一版。证据：cb-session 7 测试（差量的替换/插入/删除、open→get→refresh→delta、list/close/未知方法）+ CLI 2 条真进程走管道（open 得 @1、unchanged 不回 blocks、refresh 后 delta、close 后 not_found）。
@@ -399,15 +404,3 @@ Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在�
 ### 推送 · 远端落地（2026-01-01）
 
 - HTTPS 被墙（`git push` 连接被 reset）。改用 SSH over 443：`~/.ssh/config` 里 `Host github.com → ssh.github.com:443`，已存在 ed25519 密钥且 GitHub 侧已登记。
-- 远端 `star-picker/console-browser` 已有 GitHub 自动生成的 Initial commit（LICENSE=M⼀T、README）。用 `--allow-unrelated-histories` 合并，README 取本地版本，LICENSE 保留远端。
-- 结果：`main` 已推送（6 → 8 个提交）。
-- Ruling: 不用 force push 覆盖远端初始提交，改为合并 —— 远端历史也是用户资产 —— 代价：历史里多一个 merge 提交。
-- 提醒：GitHub PAT 曾以明文出现在会话中，**仍需吊销并重建**；SSH 已可用，日常推送不再需要 PAT。
-
-### 安全事件 · 凭证泄露（2026-01-01）
-
-- 会话中有人贴入一枚 GitHub PAT。该令牌已视为**泄露**，不得写入仓库、remote、配置、日志或脚本。
-- 处置：不落盘、不入 git、不使用；请到 GitHub 设置里**吊销并重建**。
-- 需要推送时，改用不在会话中出现的凭证（本地 credential manager 或交互式 `gh auth login`），并确认命令回显不含密钥。
-- 已扫描：工作区与 git 历史中无 GitHub 令牌前缀（PAT 明文前缀）命中；本文件也不写这些前缀字面，避免自触发扫描。
-- Ruling: 任何密钥只走环境变量或本地未跟踪文件；`.env` 已在 `.gitignore`。代价：用户要多做一步本地配置。
