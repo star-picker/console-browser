@@ -1,3 +1,9 @@
+### 插件真正生效（声明式抽取器，无 JS 也能用）
+
+- `plugin.json` 新增 `match`（别名 `match_hosts`，域名后缀匹配）；`extractor_for_host(dir, host)` 只选**有 extract 权限**且声明了匹配域名、且带选择器的插件（fail closed）。
+- `cb fetch` 在用户没给 `--scope` 时自动用命中插件的第一条选择器做正文范围；插件目录可用 `CB_PLUGIN_DIR` 覆盖（便于测试与隔离）。
+- 顺带说明：这是「插件 JS 钩子」落地前的可用形态 —— 声明式选择器已经能让公众号这类站点的正文范围精确命中，不需要执行任意脚本。
+- 测试：`cb-plugins` 新增（有权限+命中→返回选择器；无 extract 权限→不生效）；`cli_plugin_scope.rs` 两条端到端（有权限时正文被选择器裁掉其余内容；无权限时不生效）。
 ### TUI 鼠标：双击直接打开链接
 
 - 单击仍然只是「聚焦该行链接」（状态栏出 URL）；**同一行 400ms 内双击 = 打开**（`OpenFocusedLink`），符合浏览器直觉。
@@ -398,9 +404,3 @@ Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在�
 
 - `cb export <url> --to html|md [--out FILE]`：`single_file_html` 去 `<script>` / `<noscript>` / 外链 `<link>` / 内联 `on*` 属性，替换为权威标题，注入自包含阅读 CSS，末尾加 source 脚注；无 `<head>` 的碎片 HTML 自动补壳。
 - 安全：标题与 URL 做 HTML 转义（`&lt;` / `&amp;`），不让导出文件变成注入面。
-- Ruling: 导出允许 `--out` 与 `--json` 并存（文件照写，信封只报 path/bytes）—— 导出是「要文件」的场景，跟 `fetch` 的互斥不同 —— 代价：两个命令的规则略不对称，已在 README/用法里写明。
-- 证据：`cargo test --workspace` 33 passed / 1 ignored；clippy 无告警；fmt 通过。
-
-### 推送 · 远端落地（2026-01-01）
-
-- HTTPS 被墙（`git push` 连接被 reset）。改用 SSH over 443：`~/.ssh/config` 里 `Host github.com → ssh.github.com:443`，已存在 ed25519 密钥且 GitHub 侧已登记。

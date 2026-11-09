@@ -491,6 +491,7 @@ dependencies = [
  "cb-dom",
  "cb-extract",
  "cb-net",
+ "cb-plugins",
  "cb-store",
  "encoding_rs",
  "insta",

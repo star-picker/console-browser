@@ -68,6 +68,9 @@ pub struct Manifest {
     pub description: String,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// 生效域名（后缀匹配）；JSON 里也可写 "match"。
+    #[serde(default, alias = "match")]
+    pub match_hosts: Vec<String>,
     #[serde(default)]
     pub hooks: Hooks,
 }
@@ -78,6 +81,7 @@ pub struct Plugin {
     pub version: String,
     pub description: String,
     pub permissions: Vec<String>,
+    pub match_hosts: Vec<String>,
     pub dir: String,
 }
 
@@ -103,6 +107,46 @@ pub fn validate(manifest: &Manifest) -> Result<Vec<String>, String> {
         permissions.push(permission.as_str().to_string());
     }
     Ok(permissions)
+}
+
+/// 为某个 host 选一个抽取器插件：需要 extract 权限、声明了匹配域名、且有选择器。
+/// 返回 (插件名, 选择器列表)。
+pub fn extractor_for_host(dir: &Path, host: &str) -> Option<(String, Vec<String>)> {
+    let host = host.trim().to_ascii_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+    let (plugins, _) = discover(dir);
+    for plugin in plugins {
+        if !plugin.permissions.iter().any(|p| p == "extract") {
+            continue;
+        }
+        let matched = plugin
+            .match_hosts
+            .iter()
+            .any(|suffix| host.ends_with(&suffix.trim().to_ascii_lowercase()));
+        if !matched {
+            continue;
+        }
+        let manifest = match read_manifest(&Path::new(&plugin.dir).join("plugin.json")) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let Some(hook) = manifest.hooks.extract else {
+            continue;
+        };
+        let selectors: Vec<String> = hook
+            .selectors
+            .into_iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if selectors.is_empty() {
+            continue;
+        }
+        return Some((plugin.name, selectors));
+    }
+    None
 }
 
 /// 默认插件目录：`%APPDATA%/console-browser/plugins`（或 $HOME/.config/...）。
@@ -139,6 +183,7 @@ pub fn discover(dir: &Path) -> (Vec<Plugin>, Vec<String>) {
                 version: manifest.version.trim().to_string(),
                 description: manifest.description.trim().to_string(),
                 permissions,
+                match_hosts: manifest.match_hosts.clone(),
                 dir: path.display().to_string(),
             }),
             Err(e) => errors.push(format!("{}{e}", path.display())),
@@ -158,6 +203,7 @@ mod tests {
             version: "0.1.0".to_string(),
             description: "test".to_string(),
             permissions: perms.iter().map(|s| s.to_string()).collect(),
+            match_hosts: Vec::new(),
             hooks: Hooks::default(),
         }
     }
@@ -171,6 +217,32 @@ mod tests {
             validate(&manifest("ok", &["root"])).is_err(),
             "unknown permission must fail closed"
         );
+    }
+
+    #[test]
+    fn extractor_for_host_requires_permission_and_match() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let good = dir.path().join("wechat");
+        std::fs::create_dir_all(&good).expect("mkdir");
+        std::fs::write(
+            good.join("plugin.json"),
+            r##"{"name":"wechat","version":"1.0.0","permissions":["extract"],"match":["mp.weixin.qq.com"],"hooks":{"extract":{"selectors":["#js_content"]}}}"##,
+        )
+        .expect("write");
+        let hit = extractor_for_host(dir.path(), "mp.weixin.qq.com").expect("hit");
+        assert_eq!(hit.0, "wechat");
+        assert_eq!(hit.1, vec!["#js_content".to_string()]);
+        assert!(extractor_for_host(dir.path(), "example.com").is_none());
+
+        // 没有 extract 权限就不生效（fail closed）
+        let noperm = dir.path().join("noperm");
+        std::fs::create_dir_all(&noperm).expect("mkdir");
+        std::fs::write(
+            noperm.join("plugin.json"),
+            r##"{"name":"noperm","version":"1.0.0","permissions":[],"match":["noperm.example"],"hooks":{"extract":{"selectors":["#x"]}}}"##,
+        )
+        .expect("write");
+        assert!(extractor_for_host(dir.path(), "noperm.example").is_none());
     }
 
     #[test]

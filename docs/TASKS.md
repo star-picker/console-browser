@@ -59,7 +59,8 @@
 ## M5 插件
 
 - [x] plugin.json schema + 权限白名单（fail closed）+ 目录发现 + `cb plugin list/info/dir`
-- [ ] 插件 JS 钩子执行（与 cb-js 共用引擎）+ 站点适配器/挑战 hook 示例
+- [x] 插件声明式抽取器（`match` 域名 + `extract.selectors`）已接入 `cb fetch`；
+- [ ] 插件 JS 钩子执行（与 cb-js 共用引擎）+ 挑战 hook 示例
 
 ## M6 会话与打磨
 

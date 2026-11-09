@@ -6,6 +6,18 @@ use cb_extract::{ExtractOpts, Markdown};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// 从插件目录找命中当前域名、且有 extract 权限的抽取器，返回其第一个选择器。
+fn plugin_extractor_scope(url: &str) -> Option<String> {
+    let dir = std::env::var("CB_PLUGIN_DIR")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(cb_plugins::default_plugin_dir);
+    let host = url::Url::parse(url).ok()?.host_str()?.to_string();
+    let (_, selectors) = cb_plugins::extractor_for_host(&dir, &host)?;
+    selectors.into_iter().next()
+}
+
 pub const DEFAULT_CACHE_TTL_SECS: i64 = 7 * 86_400;
 pub const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 
@@ -492,8 +504,14 @@ fn build_outcome(
 ) -> Result<FetchOutcome, CbError> {
     let doc = cb_dom::Document::parse(&html);
     let title = doc.title().unwrap_or_default();
+    // 插件声明式抽取器：用户没显式指定 --scope 时，命中域名的插件接管选择器。
+    let plugin_scope = if opts.scope.is_none() {
+        plugin_extractor_scope(final_url)
+    } else {
+        None
+    };
     let extract_opts = ExtractOpts {
-        scope: opts.scope.clone(),
+        scope: opts.scope.clone().or(plugin_scope),
         max_tokens: opts.max_tokens,
         images: opts.images,
         ..Default::default()
