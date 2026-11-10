@@ -60,7 +60,8 @@
 
 - [x] plugin.json schema + 权限白名单（fail closed）+ 目录发现 + `cb plugin list/info/dir`
 - [x] 插件声明式抽取器（`match` 域名 + `extract.selectors`）已接入 `cb fetch`；
-- [ ] 插件 JS 钩子执行（与 cb-js 共用引擎）+ 挑战 hook 示例
+- [x] 插件 JS 钩子（第一形态：脚本算选择器，extract 权限 + 2s 超时 + 只读 DOM）
+- [ ] 插件 JS 完整形态（可写 DOM 改写正文）+ 挑战 hook 示例
 
 ## M6 会话与打磨
 

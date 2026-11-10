@@ -10,6 +10,22 @@ fn fixture(name: &str) -> String {
         .to_string()
 }
 
+fn plugin_dir_with_script(
+    dir: &tempfile::TempDir,
+    perms: &str,
+    hosts: &str,
+    script: &str,
+) -> String {
+    let root = dir.path().join("plugins").join("scoped");
+    std::fs::create_dir_all(&root).expect("mkdir");
+    let manifest = format!(
+        r#"{{"name":"scoped","version":"1.0.0","permissions":[{perms}],"match":[{hosts}],"hooks":{{"extract":{{"script":"sel.js"}}}}}}"#
+    );
+    std::fs::write(root.join("plugin.json"), manifest).expect("write");
+    std::fs::write(root.join("sel.js"), script).expect("write script");
+    dir.path().join("plugins").to_string_lossy().to_string()
+}
+
 fn plugin_dir(dir: &tempfile::TempDir, perms: &str, hosts: &str, selector: &str) -> String {
     let root = dir.path().join("plugins").join("scoped");
     std::fs::create_dir_all(&root).expect("mkdir");
@@ -51,6 +67,19 @@ fn plugin_selector_scopes_extraction_for_matching_host() {
         !md.contains("paragraph exists"),
         "scope must cut the rest of the page: {md}"
     );
+}
+
+#[test]
+fn plugin_js_hook_computes_the_selector() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // 脚本拿到 DOM 快照后决定用哪个选择器：有 h1 就只取 h1。
+    let script = "document.querySelectorAll('h1').length ? 'h1' : 'body'";
+    let plugins = plugin_dir_with_script(&dir, "\"extract\"", "\"example.com\"", script);
+    let (code, v) = fetch_md(&dir, &plugins);
+    assert_eq!(code, 0, "{v}");
+    let md = v["data"]["content"].as_str().expect("content");
+    assert!(md.contains("Hello World"), "{md}");
+    assert!(!md.contains("paragraph exists"), "js hook must scope: {md}");
 }
 
 #[test]

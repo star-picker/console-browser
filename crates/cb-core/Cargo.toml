@@ -11,6 +11,7 @@ blake3 = "1.8.7"
 cb-dom = { version = "0.1.0", path = "../cb-dom" }
 cb-extract = { version = "0.1.0", path = "../cb-extract" }
 cb-plugins = { version = "0.1.0", path = "../cb-plugins" }
+cb-js = { version = "0.1.0", path = "../cb-js" }
 cb-net = { version = "0.1.0", path = "../cb-net" }
 cb-store = { version = "0.1.0", path = "../cb-store" }
 encoding_rs = "0.8.44"

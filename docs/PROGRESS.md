@@ -1,3 +1,10 @@
+### 插件 JS 钩子（第一形态：脚本算选择器）
+
+- `hooks.extract.script`：插件目录内的 JS 文件，入参是页面 DOM 只读快照（`document.title/body.innerText/querySelectorAll`），**返回值当作 CSS 选择器**；空返回值回退到声明的 `selectors`。
+- 安全边界：必须有 `extract` 权限才执行；脚本只能读 DOM 快照、不能发网络（无 fetch 安装）、2s 超时中断、脚本文件必须存在于插件目录内。
+- `cb fetch` 顺序：插件 JS 钩子 → 声明式 `selectors` → 用户 `--scope`。
+- 测试：`cli_plugin_scope` 新增 `plugin_js_hook_computes_the_selector`（脚本判断有 h1 就只取 h1，正文被裁剪）；`cb-plugins` 选择结构改为 `ExtractorSelection{plugin, selectors, script}`。
+- 还没做：**完整 DOM 变更型钩子**（JS 改写正文/注入段落并回写 RenderDoc）—— 那需要可写 DOM，属于下一个增量。
 ### 插件真正生效（声明式抽取器，无 JS 也能用）
 
 - `plugin.json` 新增 `match`（别名 `match_hosts`，域名后缀匹配）；`extractor_for_host(dir, host)` 只选**有 extract 权限**且声明了匹配域名、且带选择器的插件（fail closed）。
@@ -396,11 +403,3 @@ Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在�
 - **中英双语**：新增 `cb-core/src/i18n.rs`（`Lang`、探测顺序 `--lang` > `CB_LANG` > 库内设置 > 系统区域、词条表 + 完整性测试）。CLI 的 flag/命令帮助用「中英同行」写法，一眼看两种语言；运行时消息与外壳文案走 i18n。
 - **逐命令帮助**：每个子命令都有 `after_help` 例子；`cb <cmd> --help` 与 `cb help <cmd>` 都能用；交互模式里敲 `fetch --help` 只打印帮助、不退出外壳。
 - **数据库文档化**：新增 `docs/database.md`（文件位置、表结构、缓存键公式、保留期、排查命令、后续表计划）；新增 `cb db schema`（表 + 列 + 行数）。
-- Ruling: clap 的帮助文案不做运行时翻译，直接写「中文 · English」同行 —— 少一套本地化机制、两种语言永远同时可见 —— 代价：帮助文本更长，第三种语言要重写这些行。
-- Ruling: 交互外壳先做 REPL（rustyline）而不是全屏 TUI —— 先让「双击就能用」成立，全屏界面留 M4 —— 代价：M4 要重做布局层，REPL 保留当降级路径。
-- 证据：`cargo test --workspace` 43 passed / 1 ignored（新增 i18n 3、shell 4、db schema 1）；clippy 无告警；fmt 通过。
-
-### M2 切片 1 · 单文件 HTML 导出
-
-- `cb export <url> --to html|md [--out FILE]`：`single_file_html` 去 `<script>` / `<noscript>` / 外链 `<link>` / 内联 `on*` 属性，替换为权威标题，注入自包含阅读 CSS，末尾加 source 脚注；无 `<head>` 的碎片 HTML 自动补壳。
-- 安全：标题与 URL 做 HTML 转义（`&lt;` / `&amp;`），不让导出文件变成注入面。

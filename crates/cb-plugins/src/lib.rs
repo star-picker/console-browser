@@ -49,8 +49,19 @@ impl Permission {
 pub struct ExtractorHook {
     #[serde(default)]
     pub selectors: Vec<String>,
+    /// 插件目录内的 JS 文件：入参是页面 DOM 快照，返回值当作 CSS 选择器。
+    #[serde(default)]
+    pub script: Option<String>,
     #[serde(default)]
     pub remove: Vec<String>,
+}
+
+/// 命中某域名后要应用的抽取器：静态选择器 + 可选脚本。
+#[derive(Debug, Clone)]
+pub struct ExtractorSelection {
+    pub plugin: String,
+    pub selectors: Vec<String>,
+    pub script: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -111,7 +122,7 @@ pub fn validate(manifest: &Manifest) -> Result<Vec<String>, String> {
 
 /// 为某个 host 选一个抽取器插件：需要 extract 权限、声明了匹配域名、且有选择器。
 /// 返回 (插件名, 选择器列表)。
-pub fn extractor_for_host(dir: &Path, host: &str) -> Option<(String, Vec<String>)> {
+pub fn extractor_for_host(dir: &Path, host: &str) -> Option<ExtractorSelection> {
     let host = host.trim().to_ascii_lowercase();
     if host.is_empty() {
         return None;
@@ -141,10 +152,20 @@ pub fn extractor_for_host(dir: &Path, host: &str) -> Option<(String, Vec<String>
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        if selectors.is_empty() {
+        let script = hook
+            .script
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .map(|name| Path::new(&plugin.dir).join(name))
+            .filter(|path| path.is_file());
+        if selectors.is_empty() && script.is_none() {
             continue;
         }
-        return Some((plugin.name, selectors));
+        return Some(ExtractorSelection {
+            plugin: plugin.name,
+            selectors,
+            script,
+        });
     }
     None
 }
@@ -230,8 +251,9 @@ mod tests {
         )
         .expect("write");
         let hit = extractor_for_host(dir.path(), "mp.weixin.qq.com").expect("hit");
-        assert_eq!(hit.0, "wechat");
-        assert_eq!(hit.1, vec!["#js_content".to_string()]);
+        assert_eq!(hit.plugin, "wechat");
+        assert_eq!(hit.selectors, vec!["#js_content".to_string()]);
+        assert!(hit.script.is_none());
         assert!(extractor_for_host(dir.path(), "example.com").is_none());
 
         // 没有 extract 权限就不生效（fail closed）

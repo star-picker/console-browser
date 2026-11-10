@@ -490,6 +490,7 @@ dependencies = [
  "blake3",
  "cb-dom",
  "cb-extract",
+ "cb-js",
  "cb-net",
  "cb-plugins",
  "cb-store",
