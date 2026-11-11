@@ -1,3 +1,8 @@
+### 插件可见性：list/info 显示匹配域名
+
+- `cb plugin list` 表格新增 `match` 列（没有匹配域名显示 `-`），一眼看出插件对哪些站生效。
+- `cb plugin info` 增加 `match :` 一行。
+- 冒烟：`wechat 1.0.0 [extract] mp.weixin.qq.com` / `match : mp.weixin.qq.com`。
 ### 插件 JS 钩子（第一形态：脚本算选择器）
 
 - `hooks.extract.script`：插件目录内的 JS 文件，入参是页面 DOM 只读快照（`document.title/body.innerText/querySelectorAll`），**返回值当作 CSS 选择器**；空返回值回退到声明的 `selectors`。
@@ -398,8 +403,3 @@ Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在�
 - 证据：新增 9 个测试（cb-core 5 个解析单测 + CLI 4 个 e2e + MCP 1 个工具用例），`cargo test --workspace` 58 passed / 1 ignored；clippy 无告警。
 
 ### 迭代 · 双语 + 交互外壳 + 逐命令帮助 + 数据库文档
-
-- **交互模式**：`cb` 不带参数（或 `cb shell`，或双击 exe）= rustyline 外壳，prompt 里直接跑 `fetch/export/tools/selftest/db/mcp`，不再每次重开进程；历史落在 `shell_history.txt`；内置 `help` / `lang zh|en` / `clear` / `exit`；Ctrl-C 取消本行、Ctrl-D 退出。
-- **中英双语**：新增 `cb-core/src/i18n.rs`（`Lang`、探测顺序 `--lang` > `CB_LANG` > 库内设置 > 系统区域、词条表 + 完整性测试）。CLI 的 flag/命令帮助用「中英同行」写法，一眼看两种语言；运行时消息与外壳文案走 i18n。
-- **逐命令帮助**：每个子命令都有 `after_help` 例子；`cb <cmd> --help` 与 `cb help <cmd>` 都能用；交互模式里敲 `fetch --help` 只打印帮助、不退出外壳。
-- **数据库文档化**：新增 `docs/database.md`（文件位置、表结构、缓存键公式、保留期、排查命令、后续表计划）；新增 `cb db schema`（表 + 列 + 行数）。

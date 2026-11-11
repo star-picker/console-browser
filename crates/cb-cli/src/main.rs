@@ -1680,11 +1680,17 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     println!("dir: {}", dir.display());
                 } else {
                     for p in &plugins {
+                        let hosts = if p.match_hosts.is_empty() {
+                            "-".to_string()
+                        } else {
+                            p.match_hosts.join(",")
+                        };
                         println!(
-                            "{:<20} {:<10} [{}] {}",
+                            "{:<16} {:<8} [{:<9}] {:<22} {}",
                             p.name,
                             p.version,
                             p.permissions.join(","),
+                            hosts,
                             p.description
                         );
                     }
@@ -1714,6 +1720,7 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                     println!("{} {}", p.name, p.version);
                     println!("dir         : {}", p.dir);
                     println!("permissions : {}", p.permissions.join(","));
+                    println!("match       : {}", p.match_hosts.join(","));
                     println!("description : {}", p.description);
                 }
                 Ok(0)
