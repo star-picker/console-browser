@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "url": "https://site.example/page",
+      "final_url": "https://site.example/page",
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "body": "<html><head><title>Plain Title</title></head><body><main><h1>Hello</h1><p>Body text for the page.</p><script src=\"https://cdn.example/x.js\"></script></main></body></html>"
+    },
+    {
+      "url": "https://cdn.example/x.js",
+      "final_url": "https://cdn.example/x.js",
+      "status": 200,
+      "headers": {
+        "content-type": "application/javascript"
+      },
+      "body": "document.title = 'External OK';"
+    }
+  ]
+}

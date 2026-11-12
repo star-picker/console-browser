@@ -114,6 +114,35 @@ impl JsRuntime {
         outcome
     }
 
+    /// 页面里的外链脚本地址（相对路径按 base 解析），跳过 data:/javascript:。
+    pub fn external_scripts(html: &str, base: &str) -> Vec<String> {
+        use scraper::{Html, Selector};
+        let doc = Html::parse_document(html);
+        let Ok(selector) = Selector::parse("script[src]") else {
+            return Vec::new();
+        };
+        let base_url = url::Url::parse(base).ok();
+        let mut out = Vec::new();
+        for el in doc.select(&selector) {
+            let Some(src) = el.value().attr("src") else {
+                continue;
+            };
+            let src = src.trim();
+            if src.is_empty() || src.starts_with("data:") || src.starts_with("javascript:") {
+                continue;
+            }
+            let absolute = match base_url.as_ref().and_then(|b| b.join(src).ok()) {
+                Some(u) => u.to_string(),
+                None => continue,
+            };
+            out.push(absolute);
+            if out.len() >= 20 {
+                break;
+            }
+        }
+        out
+    }
+
     /// 装一个最小 DOM/BOM：document.title / document.body.innerText 可读，
     /// scripts 里常见的取值就能跑通（真正的 DOM 变更留给后续迭代）。
     pub fn install_document(&self, title: &str, body_text: &str) -> Result<()> {
@@ -320,6 +349,19 @@ mod tests {
         let rt = JsRuntime::new().expect("runtime");
         assert_eq!(rt.eval("1 + 1").expect("eval"), "2");
         assert_eq!(rt.eval("'cb'.toUpperCase()").expect("eval"), "CB");
+    }
+
+    #[test]
+    fn external_scripts_resolve_relative_urls() {
+        let html = r#"<html><body><script src="/a.js"></script><script src="https://cdn.example/b.js"></script><script src="data:text/javascript,1"></script></body></html>"#;
+        let urls = JsRuntime::external_scripts(html, "https://site.example/page");
+        assert_eq!(
+            urls,
+            vec![
+                "https://site.example/a.js".to_string(),
+                "https://cdn.example/b.js".to_string()
+            ]
+        );
     }
 
     #[test]

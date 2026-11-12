@@ -53,7 +53,7 @@
 - [x] DOM 桩增强：querySelector/getElementById/createElement/appendChild、属性读写、textContent、事件
 - [x] 完整 DOM 树：父子/children/parentElement、后代/子代/逗号/属性/`:nth-child` 选择器、textContent/classList/append/remove/insertBefore、文档事件、title 回写
 - [ ] DOM 收尾：布局/CSS/innerHTML/表单值；JS 修改回写成 RenderDoc
-- [ ] 外链脚本执行策略（同源/白名单/大小数量上限/超时，显式开关，默认关）
+- [x] 外链脚本执行策略：`--external-allow` 白名单 + 数量/大小上限 + 超时，默认全关
 - [x] JS 站实测：百度首页 7 段内联脚本、title 正确；deepseek 首页 0 段（外链 bundle）；百度 SERP 空壳（拦截）；GitHub 文件树当前网络不可达（attempts 有证据）
 
 ## M5 插件

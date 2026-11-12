@@ -1,3 +1,9 @@
+### 外链脚本执行策略（默认全关 + 显式白名单）
+
+- 新参数 `cb js <url> --run-inline --external-allow cdn.example,other.example`：只有**显式列出的域名**才会抓取并执行 `<script src>`；默认一个都不执行。
+- 限制：最多 10 个外链脚本、单个 ≤256KB、每个受 `--timeout` 中断保护；脚本仍然只能操作 DOM 快照与 BOM 桩。
+- 提取逻辑在 cb-js：`external_scripts(html, base)` 用 base 解析相对路径，跳过 `data:`/`javascript:`。
+- 测试：`cli_js_external` 三条 —— 默认跳过（保留原 title）、白名单命中后执行（title 被改）、非白名单域名忽略。
 ### 插件可见性：list/info 显示匹配域名
 
 - `cb plugin list` 表格新增 `match` 列（没有匹配域名显示 `-`），一眼看出插件对哪些站生效。
@@ -401,5 +407,3 @@ Ruling: 审查报告的 10 条里「GitHub 文件列表被当成正文」不在�
 - Ruling: 搜索不写 `pages` 表、只写历史 —— SERP 是「入口」不是「正文资产」，正文在结果链接里 —— 代价：`cb history` 能看到搜索但 `pages` 里没有 SERP 全文。
 - Ruling: 搜索本轮不接本地缓存 —— 上一次结果过期策略还没定（引擎侧时效性强）—— 代价：重复搜索会重复请求；M2 下一步接 cache_entries 时再定 TTL。
 - 证据：新增 9 个测试（cb-core 5 个解析单测 + CLI 4 个 e2e + MCP 1 个工具用例），`cargo test --workspace` 58 passed / 1 ignored；clippy 无告警。
-
-### 迭代 · 双语 + 交互外壳 + 逐命令帮助 + 数据库文档

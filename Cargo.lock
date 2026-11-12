@@ -546,6 +546,7 @@ dependencies = [
  "scraper 0.25.0",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]

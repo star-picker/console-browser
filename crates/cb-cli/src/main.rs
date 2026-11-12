@@ -165,6 +165,9 @@ enum Cmd {
         /// 跑事件循环的预算毫秒（定时器/微任务）· Event-loop budget in ms (timers/microtasks)
         #[arg(long, default_value_t = 0, value_name = "MS")]
         loop_ms: u64,
+        /// 允许执行的外链脚本域名（逗号分隔，默认一个都不执行）· External script hosts (comma separated, default none)
+        #[arg(long, value_name = "HOSTS")]
+        external_allow: Option<String>,
     },
 
     /// 插件清单/权限 · Plugins (manifest + permissions)
@@ -459,6 +462,26 @@ fn build_cli() -> Cli {
     }
 }
 
+/// 抓一段脚本文本（供 `cb js --external-allow` 用）：不走抽取器，只要原始 JS。
+async fn fetch_script_text(
+    ctx: &Ctx,
+    url: &str,
+    replay: Option<&std::path::Path>,
+    limit: usize,
+) -> Option<String> {
+    let client = match replay {
+        Some(path) => cb_net::NetClient::replay(path).ok()?,
+        None => cb_net::NetClient::new(ctx.profile).ok()?,
+    };
+    let resp = client
+        .get(&cb_net::Request::get(url.to_string()))
+        .await
+        .ok()?;
+    if resp.status >= 400 || resp.body.len() > limit {
+        return None;
+    }
+    Some(cb_core::fetch::decode_body(&resp.body, &resp.headers))
+}
 fn main() {
     let cli = build_cli();
     init_tracing(cli.verbose);
@@ -1529,6 +1552,7 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
             fetch,
             run_inline,
             loop_ms,
+            external_allow,
         } => {
             let engine = cb_js::JsRuntime::new().map_err(|e| CbError::js(e.to_string()))?;
             let mut source_html = String::new();
@@ -1580,6 +1604,38 @@ async fn run(cli: &Cli, ctx: &Ctx, started: Instant, cmd: &Cmd) -> Result<i32, C
                 for script in cb_js::JsRuntime::inline_scripts(&source_html) {
                     if engine.eval_with_timeout(&script, timeout_ms).is_ok() {
                         ran += 1;
+                    }
+                }
+                // 外链脚本：默认一个都不跑；只抓显式 allow 的域名（大小/数量都有上限）。
+                if let (Some(allow), Some(page_url)) = (external_allow, url.as_ref()) {
+                    let hosts: Vec<String> = allow
+                        .split(',')
+                        .map(|h| h.trim().to_ascii_lowercase())
+                        .filter(|h| !h.is_empty())
+                        .collect();
+                    let mut ran_external = 0usize;
+                    for src in cb_js::JsRuntime::external_scripts(&source_html, page_url) {
+                        // 只做域名后缀匹配，不引入额外依赖：从 URL 里抠 host。
+                        let host = src
+                            .split("://")
+                            .nth(1)
+                            .and_then(|rest| rest.split(['/', ':', '?', '#']).next())
+                            .map(|h| h.to_ascii_lowercase())
+                            .unwrap_or_default();
+                        let allowed =
+                            !host.is_empty() && hosts.iter().any(|suffix| host.ends_with(suffix));
+                        if !allowed || hosts.is_empty() {
+                            continue;
+                        }
+                        if ran_external >= 10 {
+                            break;
+                        }
+                        if let Some(code) =
+                            fetch_script_text(ctx, &src, replay.as_deref(), 256 * 1024).await
+                        {
+                            let _ = engine.eval_with_timeout(&code, timeout_ms);
+                            ran_external += 1;
+                        }
                     }
                 }
                 let timers = if *loop_ms > 0 {
