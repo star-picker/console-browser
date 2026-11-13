@@ -109,3 +109,11 @@ scripts/cb-e2e.ps1        # 端到端冒烟，给外部自动化用
 - 浏览历史、缓存、日志全部存在本机 sqlite。`cb db prune` 按保留期清理（缓存按自身过期时间、历史 90 天、日志 14 天），`cb db stats` 看行数。
 - 日志目前写 stderr（`-v` 为 debug）；文件日志与轮转在 M2。
 - 已实现：TLS/HTTP2 指纹冒充、正文提取、缓存、退出码。**未实现（M2 计划）**：robots.txt 遵守、每域限速、challenge 升级、LLM 出账。别把没做的当承诺。
+
+## 插件 / Plugins
+
+给某类站点定制正文范围（零代码或受限 JS）：`plugin.json` + `permissions` + `match` + `hooks.extract`。
+Per-site extraction rules via manifests; JS hooks are sandboxed (readonly DOM, no network, 2s timeout).
+
+- 完整用法：[docs/plugins.md](docs/plugins.md)
+- 速查：`cb plugin dir`、`cb plugin list`、`cb plugin info <name>`、`cb plugin add <dir>`
